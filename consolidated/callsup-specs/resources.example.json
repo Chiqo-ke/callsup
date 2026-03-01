@@ -1,0 +1,7 @@
+{
+  "service_name": "svc-<module>",
+  "openapi_path": "/openapi.yaml",
+  "k8s_service_name": "svc-<module>",
+  "env_vars_required": ["CALLSUP_<MODULE>_..."],
+  "version": "v0.1.0"
+}
