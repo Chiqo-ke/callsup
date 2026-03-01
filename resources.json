@@ -1,0 +1,13 @@
+{
+  "service_name": "svc-audio-engine",
+  "openapi_path": "/openapi.yaml",
+  "k8s_service_name": "svc-audio-engine",
+  "env_vars_required": [
+    "CALLSUP_AUDIO_ENGINE_VAULT_API_KEY_REF",
+    "CALLSUP_AUDIO_ENGINE_VAULT_ENCRYPTION_KEY_REF",
+    "CALLSUP_AUDIO_ENGINE_ENCRYPTION_KEY",
+    "CALLSUP_AUDIO_ENGINE_ENFORCE_TLS_IN_TRANSIT"
+  ],
+  "version": "v0.1.0"
+}
+
