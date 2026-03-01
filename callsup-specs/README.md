@@ -26,3 +26,27 @@ This scaffold contains minimal **OpenAPI 3.0** templates and shared schemas for 
 1. Share this repo URL with all agent workers.
 2. Require workers to publish `resources.json` and open PRs before integration tests run.
 3. Treat `callsup-specs` as canonical for inter-module API contracts.
+
+## Integration coordinator policy
+
+This repo enforces integration governance through CI and PR templates:
+
+1. **PR order is mandatory:** `callsup-specs` PR first, then module repo PR(s).
+2. **Contract consistency is mandatory:** each module directory must keep `openapi.yaml` and `resources.json` aligned.
+3. **Quality gates are mandatory:** lint/tests/docker build evidence must be included before merge.
+4. **Mock-first is mandatory:** if dependencies are missing, proceed using mocks generated from available OpenAPI.
+5. **Blockers must include mitigation:** every blocker requires a technical note and remaining deliverables must continue.
+
+### Automation files
+
+- `.github/workflows/contract-governance.yml`
+- `.github/PULL_REQUEST_TEMPLATE.md`
+- `scripts/validate_contracts.py`
+- `scripts/check_pr_governance.py`
+- `templates/module-quality-gate.template.yml` (copy to each module repo as `.github/workflows/quality-gate.yml`)
+
+Run locally:
+
+```bash
+python scripts/validate_contracts.py
+```

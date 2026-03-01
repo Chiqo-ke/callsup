@@ -1,0 +1,11 @@
+{
+  "service_name": "svc-intelligence-engine",
+  "openapi_path": "/openapi.yaml",
+  "k8s_service_name": "svc-intelligence-engine",
+  "env_vars_required": [
+    "CALLSUP_INTELLIGENCE_ENGINE_LLM_ADAPTER_URL",
+    "CALLSUP_INTELLIGENCE_ENGINE_RETRIEVER_URL",
+    "CALLSUP_INTELLIGENCE_ENGINE_VAULT_KEY_REF"
+  ],
+  "version": "v0.1.0"
+}
