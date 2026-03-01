@@ -1,0 +1,40 @@
+openapi: 3.0.3
+info:
+  title: CALLSUP Audio Engine API
+  version: '0.1.0'
+servers:
+  - url: https://audio.callsup.example
+paths:
+  /audio/ingest:
+    post:
+      summary: Ingest audio or chunk (simulator or telephony webhook)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                business_id: {type: string}
+                conv_id: {type: string}
+                file: {type: string, format: binary}
+      responses:
+        '202':
+          description: accepted
+  /audio/transcript/{conv_id}:
+    get:
+      summary: Get transcript for conversation
+      parameters:
+        - name: conv_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '../schemas/common.json#/definitions/TranscriptSegment'
+components: {}

@@ -1,0 +1,11 @@
+{
+  "service_name": "svc-knowledge-ops",
+  "openapi_path": "/openapi.yaml",
+  "k8s_service_name": "svc-knowledge-ops",
+  "env_vars_required": [
+    "CALLSUP_KNOWLEDGE_OPS_VECTOR_DB_URL",
+    "CALLSUP_KNOWLEDGE_OPS_DOCUMENT_STORE_URL",
+    "CALLSUP_KNOWLEDGE_OPS_VAULT_KEY_REF"
+  ],
+  "version": "v0.1.0"
+}

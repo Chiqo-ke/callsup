@@ -1,0 +1,11 @@
+{
+  "service_name": "svc-platform",
+  "openapi_path": "/openapi.yaml",
+  "k8s_service_name": "svc-platform",
+  "env_vars_required": [
+    "CALLSUP_PLATFORM_DB_URL",
+    "CALLSUP_PLATFORM_REDIS_URL",
+    "CALLSUP_PLATFORM_VAULT_KEY_REF"
+  ],
+  "version": "v0.1.0"
+}
