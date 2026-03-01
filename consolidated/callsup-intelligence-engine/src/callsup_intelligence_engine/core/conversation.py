@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -45,7 +45,7 @@ class ConversationLogStore:
         self._items: list[dict[str, Any]] = []
 
     def add(self, record: ConversationLogRecord) -> None:
-        payload = record.__dict__.copy()
+        payload = asdict(record)
         payload["logged_at"] = datetime.now(timezone.utc).isoformat()
         self._items.append(payload)
         logger.info(json.dumps(payload))
