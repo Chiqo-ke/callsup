@@ -1,0 +1,168 @@
+openapi: 3.0.3
+info:
+  title: CALLSUP Intelligence Engine API
+  version: '0.1.0'
+servers:
+  - url: https://intelligence.callsup.example
+paths:
+  /health:
+    get:
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Service alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /readiness:
+    get:
+      summary: Readiness probe
+      responses:
+        '200':
+          description: Service ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      responses:
+        '200':
+          description: Metrics output
+          content:
+            text/plain:
+              schema:
+                type: string
+  /intelligence/step:
+    post:
+      summary: Process transcript segment and return action
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StepRequest'
+      responses:
+        '200':
+          description: action
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StepResponse'
+  /intelligence/e2e-demo:
+    post:
+      summary: Run ingest->ASR->NLU->action->retrieval->summary demo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/E2EDemoRequest'
+      responses:
+        '200':
+          description: demo output
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/E2EDemoResponse'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    TranscriptSegment:
+      type: object
+      required:
+        - event
+        - business_id
+        - conv_id
+        - segment_id
+        - speaker
+        - start_ts
+        - end_ts
+        - text
+      properties:
+        event:
+          type: string
+          enum: [transcript.segment]
+        business_id: {type: string}
+        conv_id: {type: string}
+        segment_id: {type: string}
+        speaker:
+          type: string
+          enum: [customer, agent]
+        start_ts:
+          type: string
+          format: date-time
+        end_ts:
+          type: string
+          format: date-time
+        text: {type: string}
+        confidence:
+          type: number
+    StepRequest:
+      type: object
+      required: [business_id, conv_id, segment]
+      properties:
+        business_id: {type: string}
+        conv_id: {type: string}
+        segment:
+          $ref: '#/components/schemas/TranscriptSegment'
+        session_state:
+          type: object
+    LLMUsage:
+      type: object
+      properties:
+        prompt_tokens: {type: integer}
+        completion_tokens: {type: integer}
+        total_tokens: {type: integer}
+    StepResponse:
+      type: object
+      properties:
+        action_type: {type: string}
+        response_text: {type: string}
+        tts: {type: boolean}
+        escalate: {type: boolean}
+        nlu_intent: {type: string}
+        verification_passed: {type: boolean}
+        llm_usage:
+          $ref: '#/components/schemas/LLMUsage'
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        version: {type: string}
+    ReadinessResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ready, not_ready]
+        checks:
+          type: object
+          additionalProperties:
+            type: string
+    E2EDemoRequest:
+      type: object
+      required: [business_id, conv_id, audio_text]
+      properties:
+        business_id: {type: string}
+        conv_id: {type: string}
+        audio_text: {type: string}
+    E2EDemoResponse:
+      type: object
+      properties:
+        stages:
+          type: object
+        redacted_transcript:
+          type: array
+          items:
+            type: object
+security:
+  - BearerAuth: []
