@@ -1,0 +1,59 @@
+openapi: 3.0.3
+info:
+  title: CALLSUP Knowledge & Ops API
+  version: '0.1.0'
+servers:
+  - url: https://kb.callsup.example
+paths:
+  /kb/{business_id}/ingest:
+    post:
+      summary: Ingest document(s) for business
+      parameters:
+        - name: business_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                docs:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id: {type: string}
+                      text: {type: string}
+                      metadata: {type: object}
+      responses:
+        '201':
+          description: ingested
+  /kb/{business_id}/query:
+    get:
+      summary: Query KB
+      parameters:
+        - name: business_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: q
+          in: query
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: {type: string}
+                    text: {type: string}
+                    score: {type: number}
+components: {}

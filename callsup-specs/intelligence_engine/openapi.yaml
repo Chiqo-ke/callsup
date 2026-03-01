@@ -1,0 +1,43 @@
+openapi: 3.0.3
+info:
+  title: CALLSUP Intelligence Engine API
+  version: '0.1.0'
+servers:
+  - url: https://intelligence.callsup.example
+paths:
+  /intelligence/step:
+    post:
+      summary: Process transcript segment and return action
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                business_id: {type: string}
+                conv_id: {type: string}
+                segment:
+                  $ref: '../schemas/common.json#/definitions/TranscriptSegment'
+                session_state:
+                  type: object
+      responses:
+        '200':
+          description: action
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  action_type: {type: string}
+                  response_text: {type: string}
+                  tts: {type: boolean}
+                  escalate: {type: boolean}
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+security:
+  - BearerAuth: []

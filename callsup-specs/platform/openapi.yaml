@@ -1,0 +1,63 @@
+openapi: 3.0.3
+info:
+  title: CALLSUP Platform API
+  version: '0.1.0'
+servers:
+  - url: https://api.callsup.example
+paths:
+  /platform/business:
+    post:
+      summary: Create a business (onboarding)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BusinessCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceManifest'
+  /platform/business/{business_id}:
+    get:
+      summary: Get business resource manifest
+      parameters:
+        - name: business_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: manifest
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceManifest'
+components:
+  schemas:
+    BusinessCreate:
+      type: object
+      properties:
+        business_id:
+          type: string
+        name:
+          type: string
+        summary:
+          type: string
+        rules_doc:
+          type: string
+      required: [business_id, name]
+    ResourceManifest:
+      type: object
+      properties:
+        business_id: {type: string}
+        db_name: {type: string}
+        vector_namespace: {type: string}
+        s3_path: {type: string}
+        k8s_namespace: {type: string}
+        secret_ref: {type: string}
+      required: [business_id, db_name, vector_namespace]

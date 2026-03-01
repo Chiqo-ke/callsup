@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "Business": {
+      "type": "object",
+      "properties": {
+        "business_id": {"type": "string"},
+        "name": {"type": "string"},
+        "summary": {"type": "string"},
+        "rules_doc": {"type": "string"},
+        "created_at": {"type": "string", "format": "date-time"}
+      },
+      "required": ["business_id", "name"]
+    },
+    "TranscriptSegment": {
+      "type": "object",
+      "properties": {
+        "business_id": {"type": "string"},
+        "conv_id": {"type": "string"},
+        "segment_id": {"type": "string"},
+        "speaker": {"type": "string", "enum": ["customer", "agent"]},
+        "start_ts": {"type": "string", "format": "date-time"},
+        "end_ts": {"type": "string", "format": "date-time"},
+        "text": {"type": "string"},
+        "confidence": {"type": "number"}
+      },
+      "required": ["business_id", "conv_id", "segment_id", "start_ts", "end_ts", "text"]
+    },
+    "ConversationSummary": {
+      "type": "object",
+      "properties": {
+        "conv_id": {"type": "string"},
+        "business_id": {"type": "string"},
+        "subject": {"type": "string"},
+        "outcome": {"type": "string"},
+        "next_steps": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["conv_id", "business_id"]
+    }
+  }
+}
