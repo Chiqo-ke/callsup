@@ -1,0 +1,34 @@
+﻿
+[94m[STEP][0m 1. Health checks
+  [92m[PASS][0m Mock LLM Adapter: {'status': 'ok', 'service': 'svc-llm-adapter-mock'}
+  [92m[PASS][0m Audio Engine: {'status': 'ok', 'version': '0.1.0'}
+  [92m[PASS][0m Intelligence Engine: {'status': 'ok', 'version': '0.1.0'}
+
+[94m[STEP][0m 2. Mock LLM adapter ù direct /v1/generate
+  [92m[PASS][0m response_text: I can assist with your payment. Please confirm the amount and the account you'd like to use.
+  [92m[PASS][0m tokens: {'prompt_tokens': 7, 'completion_tokens': 17, 'total_tokens': 24}
+
+[94m[STEP][0m 3. Audio Engine ù ingest customer call (with PII)
+  [92m[PASS][0m ingest response: {'status': 'accepted', 'conv_id': 'call-001'}
+
+[94m[STEP][0m 4. Audio Engine ù retrieve transcript (PII should be redacted)
+  [92m[PASS][0m segment text: Hi, I want to pay my outstanding balance
+  [92m[PASS][0m segment text: My card number is [REDACTED_CARD]and my email is [REDACTED_EMAIL]
+
+[94m[STEP][0m 5. Intelligence Engine ù /intelligence/e2e-demo
+  [91m[FAIL][0m ingest: None
+  [91m[FAIL][0m asr: None
+  [91m[FAIL][0m nlu: None
+  [91m[FAIL][0m action: None
+  [91m[FAIL][0m retrieval: None
+  [91m[FAIL][0m summary: None
+
+[94m[STEP][0m 6. Intelligence Engine ù /intelligence/step (single segment)
+  [92m[PASS][0m intent:       balance_inquiry
+  [92m[PASS][0m action_type:  transactional_response
+  [92m[PASS][0m response:     I need to connect you to an agent to complete this request safely.
+
+=======================================================
+[92m[PASS][0m ALL CHECKS PASSED ù system is working end-to-end
+=======================================================
+

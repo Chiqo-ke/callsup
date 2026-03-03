@@ -1,8 +1,21 @@
+import io
+import logging
+import os
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 from app.models import TranscriptSegment
 from app.pii_redaction import redact_text
+
+logger = logging.getLogger("callsup.transcription")
+
+# Load .env if present (so OPENAI_API_KEY is available without env var export)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).parent.parent / ".env")
+except ImportError:
+    pass
 
 
 def mock_third_party_transcribe(redacted_payload: str) -> list[dict]:
@@ -12,18 +25,70 @@ def mock_third_party_transcribe(redacted_payload: str) -> list[dict]:
     return [{"speaker": "customer", "text": item, "confidence": 0.95} for item in chunks]
 
 
+def whisper_transcribe(audio_bytes: bytes) -> list[dict]:
+    """Transcribe audio bytes using OpenAI Whisper API."""
+    try:
+        from openai import OpenAI  # type: ignore
+    except ImportError:
+        logger.warning("openai package not installed — falling back to mock transcriber")
+        return mock_third_party_transcribe(audio_bytes.decode("utf-8", errors="ignore"))
+
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    if not api_key or api_key.startswith("sk-replace"):
+        logger.warning("OPENAI_API_KEY not set — falling back to mock transcriber")
+        return mock_third_party_transcribe(audio_bytes.decode("utf-8", errors="ignore"))
+
+    client = OpenAI(api_key=api_key)
+    audio_file = io.BytesIO(audio_bytes)
+    audio_file.name = "audio.wav"  # OpenAI requires a filename hint
+    response = client.audio.transcriptions.create(
+        model="whisper-1",
+        file=audio_file,
+        response_format="verbose_json",
+    )
+    # verbose_json returns segments with timestamps when available
+    if hasattr(response, "segments") and response.segments:
+        return [
+            {
+                "speaker": "customer",
+                "text": seg.get("text", "").strip() if isinstance(seg, dict) else seg.text.strip(),
+                "confidence": seg.get("no_speech_prob", 0.95) if isinstance(seg, dict) else 0.95,
+            }
+            for seg in response.segments
+            if (seg.get("text") if isinstance(seg, dict) else seg.text).strip()
+        ] or [{"speaker": "customer", "text": response.text, "confidence": 0.95}]
+    return [{"speaker": "customer", "text": response.text, "confidence": 0.95}]
+
+
+def _select_transcriber(audio_bytes: bytes) -> list[dict]:
+    """Use Whisper if OPENAI_API_KEY is configured, otherwise use mock."""
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    if api_key and not api_key.startswith("sk-replace"):
+        logger.info("Using Whisper transcriber")
+        return whisper_transcribe(audio_bytes)
+    logger.info("Using mock transcriber (set OPENAI_API_KEY to enable Whisper)")
+    decoded = audio_bytes.decode("utf-8", errors="ignore").strip()
+    if not decoded:
+        decoded = "Customer shared 555-555-5555 and test@example.com for follow up."
+    return mock_third_party_transcribe(redact_text(decoded))
+
+
 def transcribe_audio(
     business_id: str,
     conv_id: str,
     audio_bytes: bytes,
     *,
-    third_party_transcriber=mock_third_party_transcribe,
+    third_party_transcriber=None,
 ) -> list[TranscriptSegment]:
-    raw_payload = audio_bytes.decode("utf-8", errors="ignore").strip()
-    if not raw_payload:
-        raw_payload = "Customer shared 555-555-5555 and test@example.com for follow up."
-    redacted_payload = redact_text(raw_payload)
-    rows = third_party_transcriber(redacted_payload)
+    if third_party_transcriber is not None:
+        # Allow injecting a custom transcriber (used in tests)
+        raw_payload = audio_bytes.decode("utf-8", errors="ignore").strip()
+        if not raw_payload:
+            raw_payload = "Customer shared 555-555-5555 and test@example.com for follow up."
+        redacted_payload = redact_text(raw_payload)
+        rows = third_party_transcriber(redacted_payload)
+    else:
+        rows = _select_transcriber(audio_bytes)
 
     current = datetime.now(UTC)
     segments: list[TranscriptSegment] = []

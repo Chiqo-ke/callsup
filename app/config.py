@@ -19,6 +19,7 @@ class Settings(BaseSettings):
         "vault://secret/data/callsup/audio-engine#encryption_key"
     )
     encryption_key: str | None = None
+    openai_api_key: str | None = None   # used by Whisper transcription
 
     enforce_tls_in_transit: bool = True
     allow_insecure_http: bool = False
