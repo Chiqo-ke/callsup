@@ -2,9 +2,12 @@ import logging
 from contextlib import nullcontext
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.auth import router as auth_router
 from app.config import Settings, get_settings
+from app.context_store import router as context_router
 from app.logging_config import setup_logging
 from app.metrics import (
     AUDIO_INGEST_REQUESTS,
@@ -24,6 +27,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     setup_logging(active_settings.log_level)
 
     app = FastAPI(title="CALLSUP Audio Engine API", version=active_settings.service_version)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:8081"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(auth_router)
+    app.include_router(context_router)
     app.mount("/metrics", metrics_app)
     app.state.repository = AudioRepository(
         data_dir=active_settings.data_dir,

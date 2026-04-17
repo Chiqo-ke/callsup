@@ -22,6 +22,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from pydantic import BaseModel
 
@@ -33,6 +34,12 @@ logger = logging.getLogger("callsup.llm_adapter")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
 
 app = FastAPI(title="svc-llm-adapter (GitHub Copilot)", version="1.0.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ── Token management (reads .copilot_session, refreshes automatically) ────────
 _copilot_token: str   = ""
@@ -67,12 +74,21 @@ def _refresh_copilot_token() -> str:
         with urllib.request.urlopen(req, timeout=10) as r:
             data = json.loads(r.read())
         _copilot_token   = data.get("token", "")
-        exp_str          = data.get("expires_at", "")
-        if exp_str:
+        exp_raw          = data.get("expires_at", "")
+        if exp_raw:
             import datetime
-            dt = datetime.datetime.fromisoformat(exp_str.replace("Z", "+00:00"))
-            _token_expires_at = dt.timestamp() - 60   # refresh 60 s early
+            # expires_at may be a Unix timestamp (int/float) or an ISO-8601 string
+            if isinstance(exp_raw, (int, float)):
+                _token_expires_at = float(exp_raw) - 60
+                exp_str = datetime.datetime.fromtimestamp(
+                    float(exp_raw), tz=datetime.timezone.utc
+                ).isoformat()
+            else:
+                exp_str = str(exp_raw)
+                dt = datetime.datetime.fromisoformat(exp_str.replace("Z", "+00:00"))
+                _token_expires_at = dt.timestamp() - 60
         else:
+            exp_str = ""
             _token_expires_at = time.time() + 1700    # ~28 min default
         # Persist refreshed token back to session file
         session["copilot_token"]   = _copilot_token

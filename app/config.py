@@ -19,10 +19,24 @@ class Settings(BaseSettings):
         "vault://secret/data/callsup/audio-engine#encryption_key"
     )
     encryption_key: str | None = None
-    openai_api_key: str | None = None   # used by Whisper transcription
+    openai_api_key: str | None = None   # used by OpenAI Whisper transcription
+
+    # RapidAPI Whisper (speech-to-text-ai.p.rapidapi.com)
+    rapidapi_whisper_key: str | None = None
+    rapidapi_whisper_host: str = "speech-to-text-ai.p.rapidapi.com"
+    rapidapi_whisper_url: str = "https://speech-to-text-ai.p.rapidapi.com/transcribe"
+    rapidapi_whisper_lang: str = "en"
 
     enforce_tls_in_transit: bool = True
     allow_insecure_http: bool = False
+
+    # Auth
+    jwt_secret: str = "callsup-dev-secret-change-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_hours: int = 24
+
+    # LLM adapter URL (used for context rewriting)
+    llm_adapter_url: str = "http://127.0.0.1:9100"
 
     def get_encryption_key(self) -> bytes:
         if self.encryption_key:

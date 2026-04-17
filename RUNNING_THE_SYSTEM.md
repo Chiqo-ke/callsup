@@ -70,6 +70,32 @@ INFO:     Uvicorn running on http://127.0.0.1:8011
 
 ---
 
+### Terminal 4 — Web Dashboard (optional) · http://localhost:5173
+
+```powershell
+Set-Location "C:\Users\nyaga\Documents\callsup\callsup-web"
+npm install   # first time only
+npm run dev
+```
+
+Wait for:
+```
+  VITE v6.x.x  ready in xxx ms
+
+  ➜  Local:   http://localhost:5173/
+```
+
+Open **http://localhost:5173** in your browser.
+
+#### Dashboard at a glance
+
+- **Stats row** — Tickets Pending, Resolved Today, Total Escalations, Services Online (X/3)
+- **Service health cards** — shows name, status (online/offline), and version. Raw URLs are not displayed.
+- **Task Queue** — escalation tickets raised by the Intelligence Engine or Call Simulation that need human review. Click **Resolve** to close a ticket.
+- Tickets are stored in browser `localStorage` (`callsup_tickets`) and persist across page refreshes.
+
+---
+
 ## Verifying All Services Are Up
 
 Run this in any terminal once all three are started:

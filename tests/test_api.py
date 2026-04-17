@@ -1,13 +1,17 @@
+from unittest.mock import patch
+
 from app.config import Settings
 from app.main import create_app
 
 
 def test_ingest_and_get_transcript_flow(client):
-    response = client.post(
-        "/audio/ingest",
-        data={"business_id": "biz-1", "conv_id": "conv-1"},
-        files={"file": ("sample.wav", b"hello customer at me@example.com", "audio/wav")},
-    )
+    mock_segments = [{"speaker": "customer", "text": "Hello my email is [REDACTED_EMAIL]", "confidence": 0.95}]
+    with patch("app.transcription._select_transcriber", return_value=mock_segments):
+        response = client.post(
+            "/audio/ingest",
+            data={"business_id": "biz-1", "conv_id": "conv-1"},
+            files={"file": ("sample.wav", b"hello customer at me@example.com", "audio/wav")},
+        )
     assert response.status_code == 202
     assert response.json()["status"] == "accepted"
 

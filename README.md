@@ -1,70 +1,64 @@
-# CALLSUP Audio Engine Service (v0.1.0)
+# CALLSUP
 
-FastAPI service for audio ingest and transcript retrieval with strict `TranscriptSegment` compatibility.
+AI-powered call-support platform. Transcribes calls, detects intent, generates actions, and escalates conversations that need human intervention.
 
-## Endpoints
+## Architecture
 
-- `POST /audio/ingest` (multipart: `business_id`, `conv_id`, `file`) -> `202 accepted`
-- `GET /audio/transcript/{conv_id}` -> transcript segments
-- `GET /health` -> service health
-- `GET /metrics` -> Prometheus metrics
-
-## Quickstart
-
-```bash
-python -m venv .venv
-. .venv/Scripts/activate
-pip install -r requirements-dev.txt
-uvicorn app.main:app --reload
+```
+callsup-web/           React 19 + TypeScript dashboard (frontend)
+consolidated/
+  callsup-platform/            Platform service
+  callsup-audio-engine/        Whisper transcription  · port 8010
+  callsup-intelligence-engine/ NLU + action engine    · port 8011
+svc-llm-adapter/               GitHub Copilot proxy   · port 9100
+callsup-specs/                 OpenAPI contracts + governance
 ```
 
-## Example payloads
+## Services
 
-### Ingest audio
+| Service | Port | Description |
+|---------|------|-------------|
+| Audio Engine | 8010 | Ingest audio, redact PII, retrieve transcripts |
+| Intelligence Engine | 8011 | Intent detection, action decisions, escalation |
+| LLM Adapter | 9100 | Authenticated GitHub Copilot / OpenAI proxy |
 
-```bash
-curl -X POST "http://localhost:8000/audio/ingest" ^
-  -F "business_id=biz-123" ^
-  -F "conv_id=conv-abc" ^
-  -F "file=@sample.wav"
+## Web Dashboard
+
+Located at `callsup-web/`. Features:
+- **Live service health** — online/offline status and version per service
+- **Analytics stats** — pending escalation tickets, resolved today, total escalations, services online
+- **Task queue** — escalated conversations that require human intervention, with one-click Resolve
+- **Audio ingest** — upload recordings for transcription
+- **Transcripts** — browse conversation segments with PII redacted
+- **Intelligence** — step-by-step analysis tool
+- **Call simulation** — test the full pipeline with a scripted conversation
+- **Context management** — manage business knowledge used by the intelligence engine
+
+## Quick Start
+
+See [RUNNING_THE_SYSTEM.md](RUNNING_THE_SYSTEM.md) for full instructions.
+
+```powershell
+# 1. Start backend services (3 terminals — see RUNNING_THE_SYSTEM.md)
+
+# 2. Start frontend
+Set-Location callsup-web
+npm install
+npm run dev   # http://localhost:5173
 ```
 
-### Retrieve transcript
+## Security
 
-```bash
-curl "http://localhost:8000/audio/transcript/conv-abc"
-```
-
-Example response:
-
-```json
-[
-  {
-    "business_id": "biz-123",
-    "conv_id": "conv-abc",
-    "segment_id": "4f8f7f7f-bf7f-4f8f-9f7f-7f7f7f7f7f7f",
-    "speaker": "customer",
-    "start_ts": "2026-03-01T20:00:00Z",
-    "end_ts": "2026-03-01T20:00:04Z",
-    "text": "Customer shared [REDACTED_PHONE] and [REDACTED_EMAIL] for follow up",
-    "confidence": 0.95
-  }
-]
-```
-
-## Security and compliance
-
-- **PII redaction:** canonical redaction (`email`, `phone`, `ssn`, `card`) applied before mock third-party transcription calls.
-- **Vault key refs:** configure refs via env:
-  - `CALLSUP_AUDIO_ENGINE_VAULT_API_KEY_REF`
-  - `CALLSUP_AUDIO_ENGINE_VAULT_ENCRYPTION_KEY_REF`
-- **Encryption at rest:** uploaded audio bytes are encrypted with Fernet before writing to disk (`data/audio/*.bin`).
-- **TLS in transit:** set `CALLSUP_AUDIO_ENGINE_ENFORCE_TLS_IN_TRANSIT=true` and `CALLSUP_AUDIO_ENGINE_ALLOW_INSECURE_HTTP=false`.
+- PII is redacted before any third-party LLM call (phone, email, SSN, card numbers)
+- Audio encrypted at rest with Fernet
+- TLS enforced in transit (configurable per service)
+- Raw service URLs are never exposed in the frontend UI
 
 ## Tests
 
-```bash
-pytest
-```
+```powershell
+# Backend smoke test (requires all 3 services running)
+& "C:\Users\nyaga\Documents\.venv\Scripts\python.exe" smoke_test.py
 
-Pytest is configured to fail below 70% coverage for `app/`.
+# Module unit tests — see PROJECT_STATUS_SUMMARY.md § 3
+```

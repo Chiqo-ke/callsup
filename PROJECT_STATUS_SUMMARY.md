@@ -1,6 +1,40 @@
 # CALLSUP Project Status Summary
 
-Date: 2026-03-02
+Date: 2026-03-02 (updated with frontend dashboard)
+
+## 0) Web Dashboard (`callsup-web`)
+
+**Status: Complete**
+
+React 19 + TypeScript + Vite single-page application at `callsup-web/`.
+
+### Pages delivered
+| Page | Purpose |
+|------|---------|
+| Dashboard | Stats, service health, escalation task queue |
+| Audio Ingest | Upload audio for transcription |
+| Transcripts | Browse conversation transcripts |
+| Intelligence | Stepwise NLU analysis |
+| Context | Manage business knowledge |
+| Simulation | End-to-end call simulation |
+
+### Dashboard features
+- 4-column stats row: Tickets Pending, Resolved Today, Total Escalations, Services Online (X/3)
+- Service health cards with name, status badge, version — no raw API URLs shown to users
+- Task Queue: table of escalated conversations needing human review (conv_id, reason, timestamp, status, Resolve button)
+
+### Escalation ticket system
+- `EscalatedTicket` interface with `id`, `conv_id`, `business_id`, `reason`, `timestamp`, `status`
+- Intelligence page and Call Simulation page both automatically raise tickets when `action.escalate === true`
+- Tickets persisted in `localStorage` under key `callsup_tickets`
+- `resolveTicket` handler marks a ticket `"resolved"` and updates stats counters live
+
+### Architecture
+- Single file: `src/App.tsx` (~1800 lines, all pages inline, no router)
+- API calls via `src/lib/api.ts` (typed; no raw URLs in components)
+- UI components: `src/components/ui/` (badge, button, card, spinner)
+
+---
 
 ## 1) What has been covered
 

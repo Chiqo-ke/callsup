@@ -5,6 +5,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
+import requests as _requests
+
 from app.models import TranscriptSegment
 from app.pii_redaction import redact_text
 
@@ -23,6 +25,49 @@ def mock_third_party_transcribe(redacted_payload: str) -> list[dict]:
     if not chunks:
         chunks = ["Audio received and processed."]
     return [{"speaker": "customer", "text": item, "confidence": 0.95} for item in chunks]
+
+
+def rapidapi_whisper_transcribe(audio_bytes: bytes) -> list[dict]:
+    """Transcribe audio bytes using the RapidAPI Whisper speech-to-text service."""
+    from app.config import get_settings
+
+    settings = get_settings()
+    api_key = settings.rapidapi_whisper_key or ""
+    if not api_key:
+        raise ValueError("CALLSUP_AUDIO_ENGINE_RAPIDAPI_WHISPER_KEY is not configured")
+
+    headers = {
+        "x-rapidapi-key": api_key,
+        "x-rapidapi-host": settings.rapidapi_whisper_host,
+    }
+    params = {
+        "lang": settings.rapidapi_whisper_lang,
+        "task": "transcribe",
+    }
+    files = {"file": ("audio.wav", audio_bytes, "audio/wav")}
+
+    response = _requests.post(
+        settings.rapidapi_whisper_url,
+        headers=headers,
+        params=params,
+        files=files,
+        timeout=60,
+    )
+    response.raise_for_status()
+    data = response.json()
+
+    # The API returns {"results": [{"transcript": "..."}]} or {"text": "..."}
+    if isinstance(data, dict):
+        if "results" in data and isinstance(data["results"], list):
+            segments = []
+            for item in data["results"]:
+                text = (item.get("transcript") or item.get("text") or "").strip()
+                if text:
+                    segments.append({"speaker": "customer", "text": text, "confidence": 0.95})
+            return segments or [{"speaker": "customer", "text": str(data), "confidence": 0.95}]
+        if "text" in data:
+            return [{"speaker": "customer", "text": data["text"].strip(), "confidence": 0.95}]
+    return [{"speaker": "customer", "text": str(data), "confidence": 0.95}]
 
 
 def whisper_transcribe(audio_bytes: bytes) -> list[dict]:
@@ -61,12 +106,24 @@ def whisper_transcribe(audio_bytes: bytes) -> list[dict]:
 
 
 def _select_transcriber(audio_bytes: bytes) -> list[dict]:
-    """Use Whisper if OPENAI_API_KEY is configured, otherwise use mock."""
+    """Use RapidAPI Whisper first, then OpenAI Whisper, then mock."""
+    from app.config import get_settings
+
+    settings = get_settings()
+
+    if settings.rapidapi_whisper_key:
+        logger.info("Using RapidAPI Whisper transcriber")
+        try:
+            return rapidapi_whisper_transcribe(audio_bytes)
+        except Exception as exc:
+            logger.warning("RapidAPI Whisper failed (%s) — falling back", exc)
+
     api_key = os.getenv("OPENAI_API_KEY", "")
     if api_key and not api_key.startswith("sk-replace"):
-        logger.info("Using Whisper transcriber")
+        logger.info("Using OpenAI Whisper transcriber")
         return whisper_transcribe(audio_bytes)
-    logger.info("Using mock transcriber (set OPENAI_API_KEY to enable Whisper)")
+
+    logger.info("Using mock transcriber (configure a Whisper backend to enable real ASR)")
     decoded = audio_bytes.decode("utf-8", errors="ignore").strip()
     if not decoded:
         decoded = "Customer shared 555-555-5555 and test@example.com for follow up."
