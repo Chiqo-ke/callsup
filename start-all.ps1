@@ -19,6 +19,15 @@ Read-Host 'Press Enter to close'
 "@
 
 Set-Content -Path $audioScript -Value @"
+# Load .env from project root so OPENAI_API_KEY and RapidAPI keys are available
+`$envFile = '$root\.env'
+if (Test-Path `$envFile) {
+    Get-Content `$envFile | ForEach-Object {
+        if (`$_ -match '^([^#\s][^=]*)=(.*)`$') {
+            [System.Environment]::SetEnvironmentVariable(`$matches[1].Trim(), `$matches[2].Trim())
+        }
+    }
+}
 `$env:CALLSUP_AUDIO_ENGINE_ENFORCE_TLS_IN_TRANSIT = 'false'
 `$env:CALLSUP_AUDIO_ENGINE_ALLOW_INSECURE_HTTP    = 'true'
 `$env:CALLSUP_AUDIO_ENGINE_DATA_DIR               = 'data'

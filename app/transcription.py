@@ -27,7 +27,11 @@ def mock_third_party_transcribe(redacted_payload: str) -> list[dict]:
     return [{"speaker": "customer", "text": item, "confidence": 0.95} for item in chunks]
 
 
-def rapidapi_whisper_transcribe(audio_bytes: bytes) -> list[dict]:
+def rapidapi_whisper_transcribe(
+    audio_bytes: bytes,
+    filename: str = "audio.webm",
+    content_type: str = "audio/webm",
+) -> list[dict]:
     """Transcribe audio bytes using the RapidAPI Whisper speech-to-text service."""
     from app.config import get_settings
 
@@ -44,7 +48,7 @@ def rapidapi_whisper_transcribe(audio_bytes: bytes) -> list[dict]:
         "lang": settings.rapidapi_whisper_lang,
         "task": "transcribe",
     }
-    files = {"file": ("audio.wav", audio_bytes, "audio/wav")}
+    files = {"file": (filename, audio_bytes, content_type)}
 
     response = _requests.post(
         settings.rapidapi_whisper_url,

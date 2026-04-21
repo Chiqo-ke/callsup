@@ -98,6 +98,67 @@ export async function fetchTranscript(convId: string): Promise<TranscriptSegment
   return res.json();
 }
 
+// ── Voice conversation (LLM + TTS + STT) ─────────────────────────────────────
+
+export interface ChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface VoiceChatResponse {
+  reply: string;
+  history: ChatMessage[];
+}
+
+export async function voiceChat(
+  convId: string,
+  businessId: string,
+  message: string,
+  history: ChatMessage[],
+  firstTurn = false
+): Promise<VoiceChatResponse> {
+  const res = await fetch(`${SERVICES.audio}/audio/voice/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      conv_id: convId,
+      business_id: businessId,
+      message,
+      history,
+      first_turn: firstTurn,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail ?? "Voice chat failed");
+  }
+  return res.json();
+}
+
+export async function voiceTTS(text: string, voice = "alloy"): Promise<Blob> {
+  const res = await fetch(`${SERVICES.audio}/audio/voice/tts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, voice }),
+  });
+  if (!res.ok) throw new Error(`TTS failed: ${res.status}`);
+  return res.blob();
+}
+
+export async function voiceSTT(audioBlob: Blob): Promise<{ text: string }> {
+  const form = new FormData();
+  form.append("file", audioBlob, "recording.webm");
+  const res = await fetch(`${SERVICES.audio}/audio/voice/stt`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail ?? "STT failed");
+  }
+  return res.json();
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 export interface AuthResponse {

@@ -12,14 +12,16 @@ import {
   LogIn,
   LogOut,
   MessageSquare,
+  Mic,
+  MicOff,
   Pencil,
   Phone,
+  PhoneOff,
   RefreshCw,
   Server,
   ShieldCheck,
   Sparkles,
   Trash2,
-  Upload,
   User,
   WifiOff,
   Zap,
@@ -30,7 +32,6 @@ import { Spinner } from "./components/ui/spinner";
 import {
   fetchHealth,
   fetchTranscript,
-  ingestAudio,
   intelligenceStep,
   simulateCall,
   login,
@@ -39,7 +40,10 @@ import {
   createContextItem,
   updateContextItem,
   deleteContextItem,
+  voiceChat,
+  voiceSTT,
   type BusinessContextItem,
+  type ChatMessage,
   type HealthResult,
   type IntelligenceAction,
   type ServiceName,
@@ -50,7 +54,7 @@ import {
 // Types
 // ──────────────────────────────────────────────────────────────────────────────
 
-type Page = "dashboard" | "ingest" | "transcripts" | "intelligence" | "context" | "simulation";
+type Page = "dashboard" | "transcripts" | "intelligence" | "context" | "simulation";
 
 interface AuthState {
   token: string;
@@ -470,167 +474,6 @@ function DashboardPage({
               </table>
             </div>
           )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Ingest page
-// ──────────────────────────────────────────────────────────────────────────────
-
-function IngestPage({ businessId }: { businessId: string }) {
-  const [mode, setMode] = useState<"file" | "simulate">("file");
-
-  // shared fields
-  const [convId, setConvId] = useState("");
-  const [status, setStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
-  const [message, setMessage] = useState("");
-
-  // file-mode state
-  const [file, setFile] = useState<File | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  // simulate-mode state
-  const [script, setScript] = useState(
-    "Agent: Thank you for calling, how can I help you today?\nCustomer: I need help with my recent order.\nAgent: Of course. Can I have your order number please?\nCustomer: It's 98765. I haven't received it yet."
-  );
-
-  const resetStatus = () => { setStatus("idle"); setMessage(""); };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setStatus("loading");
-    setMessage("");
-    try {
-      if (mode === "file") {
-        if (!file) return;
-        const result = await ingestAudio(businessId.trim(), convId.trim(), file);
-        setStatus("ok");
-        setMessage(`Accepted — conv_id: ${result.conv_id}`);
-      } else {
-        const result = await simulateCall(businessId.trim(), convId.trim(), script);
-        setStatus("ok");
-        setMessage(`Accepted — conv_id: ${result.conv_id} · ${result.segments} segment(s)`);
-      }
-    } catch (err: unknown) {
-      setStatus("error");
-      setMessage(err instanceof Error ? err.message : "Unknown error");
-    }
-  };
-
-  return (
-    <div>
-      <h1 className="text-2xl font-bold text-slate-900 mb-1">Ingest Audio</h1>
-      <p className="text-sm text-slate-500 mb-6">
-        Upload a real audio file or simulate a call with a typed script.
-      </p>
-
-      {/* Tab bar */}
-      <div className="flex gap-1 mb-4 bg-slate-100 rounded-lg p-1 w-fit">
-        <button
-          onClick={() => { setMode("file"); resetStatus(); }}
-          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-            mode === "file"
-              ? "bg-white text-slate-900 shadow-sm"
-              : "text-slate-500 hover:text-slate-700"
-          }`}
-        >
-          <Upload size={14} /> Upload File
-        </button>
-        <button
-          onClick={() => { setMode("simulate"); resetStatus(); }}
-          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-            mode === "simulate"
-              ? "bg-white text-slate-900 shadow-sm"
-              : "text-slate-500 hover:text-slate-700"
-          }`}
-        >
-          <Phone size={14} /> Simulate Call
-        </button>
-      </div>
-
-      <Card className="max-w-lg">
-        <CardContent className="pt-6">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Conversation ID</label>
-              <input
-                required
-                value={convId}
-                onChange={(e) => setConvId(e.target.value)}
-                placeholder="e.g. conv-1025"
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            {mode === "file" ? (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Audio File</label>
-                <div
-                  onClick={() => fileRef.current?.click()}
-                  className="border-2 border-dashed border-slate-200 rounded-lg p-6 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
-                >
-                  <Upload size={20} className="mx-auto text-slate-400 mb-2" />
-                  <p className="text-sm text-slate-500">
-                    {file ? file.name : "Click to choose an audio file"}
-                  </p>
-                  {file && (
-                    <p className="text-xs text-slate-400 mt-1">{(file.size / 1024).toFixed(1)} KB</p>
-                  )}
-                </div>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="audio/*"
-                  className="hidden"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                />
-              </div>
-            ) : (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Conversation Script
-                </label>
-                <p className="text-xs text-slate-400 mb-2">
-                  Each line is a segment. Sentences separated by "." become individual entries.
-                </p>
-                <textarea
-                  required
-                  rows={8}
-                  value={script}
-                  onChange={(e) => setScript(e.target.value)}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
-                />
-              </div>
-            )}
-
-            {status === "ok" && (
-              <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-sm">
-                <CheckCircle2 size={15} className="shrink-0" /> {message}
-              </div>
-            )}
-            {status === "error" && (
-              <div className="flex items-center gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm">
-                <AlertCircle size={15} className="shrink-0" /> {message}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={status === "loading" || (mode === "file" && !file)}
-              className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {status === "loading" ? (
-                <><Spinner className="text-white" /> Processing…</>
-              ) : mode === "file" ? (
-                <><Upload size={15} /> Submit Audio</>
-              ) : (
-                <><Phone size={15} /> Simulate Call</>
-              )}
-            </button>
-          </form>
         </CardContent>
       </Card>
     </div>
@@ -1282,227 +1125,278 @@ interface ChatBubble {
 
 function CallSimulationPage({
   businessId,
-  token,
-  onEscalate,
+  token: _token,
+  onEscalate: _onEscalate,
 }: {
   businessId: string;
   token: string;
   onEscalate: (ticket: EscalatedTicket) => void;
 }) {
-  const [convId, setConvId] = useState(`conv-${Date.now().toString().slice(-6)}`);
-  const [script, setScript] = useState(
-    "Agent: Thank you for calling, how can I help you today?\nCustomer: I need help with my recent order.\nAgent: Of course. Can I have your order number please?\nCustomer: It is 98765. I have not received it yet.\nAgent: Let me check that for you right away."
-  );
-  const [runIntelligence, setRunIntelligence] = useState(false);
-  const [status, setStatus] = useState<"idle" | "loading" | "running" | "done" | "error">("idle");
+  type CallStatus = "idle" | "connecting" | "active" | "listening" | "processing" | "speaking" | "ended" | "error";
+
+  const [callStatus, setCallStatus] = useState<CallStatus>("idle");
+  const [convId, setConvId] = useState("");
+  const [businessIdInput, setBusinessIdInput] = useState(businessId || "demo-business");
   const [bubbles, setBubbles] = useState<ChatBubble[]>([]);
-  const [currentLabel, setCurrentLabel] = useState("");
+  const [history, setHistory] = useState<ChatMessage[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
+  const [statusLabel, setStatusLabel] = useState("Ready — press Answer Call to begin");
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
 
-  // auto-scroll chat
+  // Auto-scroll to latest bubble
   useEffect(() => {
-    if (chatRef.current) {
-      chatRef.current.scrollTop = chatRef.current.scrollHeight;
-    }
+    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
   }, [bubbles]);
 
-  const reset = () => {
-    setBubbles([]);
-    setStatus("idle");
-    setErrorMsg("");
-    setCurrentLabel("");
-    setConvId(`conv-${Date.now().toString().slice(-6)}`);
+  const playTTS = (text: string): Promise<void> => {
+    setCallStatus("speaking");
+    setStatusLabel("Agent is speaking…");
+    return new Promise<void>((resolve) => {
+      window.speechSynthesis.cancel();
+      const utt = new SpeechSynthesisUtterance(text);
+      utt.lang = "en-US";
+      utt.rate = 1.0;
+      utt.onend = () => {
+        setCallStatus("active");
+        setStatusLabel("Hold the mic button to speak");
+        resolve();
+      };
+      utt.onerror = () => {
+        setCallStatus("active");
+        setStatusLabel("Hold the mic button to speak");
+        resolve();
+      };
+      window.speechSynthesis.speak(utt);
+    });
   };
 
-  const handleStart = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBubbles([]);
+  const handleAnswerCall = async () => {
+    setCallStatus("connecting");
     setErrorMsg("");
-    setStatus("loading");
-    setCurrentLabel("Sending script to audio engine…");
-
+    setBubbles([]);
+    setHistory([]);
+    const cid = `call-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setConvId(cid);
+    setStatusLabel("Requesting microphone access…");
     try {
-      const bid = businessId.trim();
-      const cid = convId.trim();
-
-      // 1. Simulate → get conv_id back
-      const simResult = await simulateCall(bid, cid, script);
-      setCurrentLabel("Fetching STT transcript…");
-
-      // 2. Fetch transcript segments
-      const segments = await fetchTranscript(simResult.conv_id);
-
-      // 3. Animate each segment as a chat bubble
-      setStatus("running");
-      let contextText = "";
-      if (bid) {
-        try {
-          const contextItems = await getContextItems(token);
-          contextText = contextItems.map((c) => `[${c.label}]: ${c.content}`).join("\n\n");
-        } catch {
-          // non-fatal — continue without context
-        }
-      }
-
-      for (let i = 0; i < segments.length; i++) {
-        const seg = segments[i];
-        setCurrentLabel(
-          `Transcribing segment ${i + 1} of ${segments.length} — ${seg.speaker}…`
-        );
-        await new Promise((r) => setTimeout(r, 500 + Math.random() * 300));
-
-        const isAgent = seg.speaker.toLowerCase().includes("agent");
-        const bubble: ChatBubble = {
-          speaker: seg.speaker,
-          text: seg.text,
-          isAgent,
-          confidence: seg.confidence,
-        };
-
-        // Optional: run intelligence step for agent turns
-        if (runIntelligence && isAgent && bid) {
-          try {
-            const action = await intelligenceStep(bid, simResult.conv_id, seg, {
-              business_context: contextText,
-            });
-            bubble.intelligenceAction = action;
-            if (action.escalate) {
-              onEscalate({
-                id: `${simResult.conv_id}-${Date.now()}`,
-                conv_id: simResult.conv_id,
-                business_id: bid,
-                reason: action.response_text,
-                timestamp: new Date().toISOString(),
-                status: "pending",
-              });
-            }
-          } catch {
-            // non-fatal — show bubble without action
-          }
-        }
-
-        setBubbles((prev) => [...prev, bubble]);
-      }
-
-      setCurrentLabel("");
-      setStatus("done");
-    } catch (err: unknown) {
-      setStatus("error");
-      setErrorMsg(err instanceof Error ? err.message : "Unknown error");
-      setCurrentLabel("");
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      setStatusLabel("Connecting to AI agent…");
+      const resp = await voiceChat(cid, businessIdInput, "", [], true);
+      setHistory(resp.history);
+      setBubbles([{ speaker: "Agent", text: resp.reply, isAgent: true }]);
+      await playTTS(resp.reply);
+    } catch (err) {
+      setCallStatus("error");
+      setErrorMsg(err instanceof Error ? err.message : "Failed to start call");
+      setStatusLabel("Error — see below");
     }
   };
 
-  const inputClass =
-    "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+  const startRecording = () => {
+    if (!streamRef.current || callStatus !== "active") return;
+    audioChunksRef.current = [];
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : MediaRecorder.isTypeSupported("audio/webm")
+      ? "audio/webm"
+      : "audio/ogg";
+    const recorder = new MediaRecorder(streamRef.current, { mimeType });
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+    recorder.start(250);
+    mediaRecorderRef.current = recorder;
+    setCallStatus("listening");
+    setStatusLabel("Listening… release to send");
+  };
 
-  const isRunning = status === "loading" || status === "running";
+  const stopRecording = async () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") return;
+    await new Promise<void>((resolve) => { recorder.onstop = () => resolve(); recorder.stop(); });
+    setCallStatus("processing");
+    setStatusLabel("Transcribing speech…");
+    const mimeType = audioChunksRef.current[0]?.type || "audio/webm";
+    const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+    if (audioBlob.size < 100) {
+      setCallStatus("active");
+      setStatusLabel("No audio captured — hold longer to speak");
+      return;
+    }
+    try {
+      const sttResult = await voiceSTT(audioBlob);
+      const userText = sttResult.text.trim();
+      if (!userText) {
+        setCallStatus("active");
+        setStatusLabel("Nothing detected — hold to speak again");
+        return;
+      }
+      setBubbles((prev) => [...prev, { speaker: "You", text: userText, isAgent: false }]);
+      setStatusLabel("Agent is thinking…");
+      const chatResp = await voiceChat(convId, businessIdInput, userText, history, false);
+      setHistory(chatResp.history);
+      setBubbles((prev) => [...prev, { speaker: "Agent", text: chatResp.reply, isAgent: true }]);
+      await playTTS(chatResp.reply);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Error processing speech");
+      setCallStatus("active");
+      setStatusLabel("Error — try again");
+    }
+  };
+
+  const handleEndCall = () => {
+    if (currentAudioRef.current) { currentAudioRef.current.pause(); currentAudioRef.current = null; }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") mediaRecorderRef.current.stop();
+    if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null; }
+    setCallStatus("ended");
+    setStatusLabel("Call ended");
+  };
+
+  const handleReset = () => {
+    handleEndCall();
+    setCallStatus("idle");
+    setBubbles([]);
+    setHistory([]);
+    setConvId("");
+    setErrorMsg("");
+    setStatusLabel("Ready — press Answer Call to begin");
+  };
+
+  const isLive = callStatus !== "idle" && callStatus !== "ended" && callStatus !== "error";
+  const canRecord = callStatus === "active";
+  const isListening = callStatus === "listening";
+  const isConnecting = callStatus === "connecting";
+
+  const statusColor: Record<CallStatus, string> = {
+    idle: "bg-slate-300",
+    connecting: "bg-amber-400 animate-pulse",
+    active: "bg-emerald-400",
+    listening: "bg-red-500 animate-pulse",
+    processing: "bg-blue-400 animate-pulse",
+    speaking: "bg-blue-600 animate-pulse",
+    ended: "bg-slate-400",
+    error: "bg-red-600",
+  };
 
   return (
     <div className="flex flex-col h-full">
-      <h1 className="text-2xl font-bold text-slate-900 mb-1">Call Simulation</h1>
+      <h1 className="text-2xl font-bold text-slate-900 mb-1">Live Call Simulation</h1>
       <p className="text-sm text-slate-500 mb-6">
-        Submit a conversation script — the audio engine transcribes it via STT and the result is
-        displayed as a live chat.
+        Answer the call, speak with the AI agent using your microphone, and hear responses in real time.
       </p>
 
-      <div className="grid gap-6 lg:grid-cols-[380px_1fr] flex-1 min-h-0">
-        {/* Config panel */}
-        <Card className="self-start">
-          <CardContent className="pt-5">
-            <form onSubmit={handleStart} className="space-y-4">
+      <div className="grid gap-6 lg:grid-cols-[340px_1fr] flex-1 min-h-0">
+        {/* Config / control panel */}
+        <div className="flex flex-col gap-4 self-start">
+          <Card>
+            <CardContent className="pt-5 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Conversation ID
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Business</label>
                 <input
-                  required
-                  value={convId}
-                  onChange={(e) => setConvId(e.target.value)}
-                  className={inputClass}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Conversation Script
-                </label>
-                <p className="text-xs text-slate-400 mb-1.5">
-                  One line per turn — format: <span className="font-mono">Speaker: text</span>
-                </p>
-                <textarea
-                  required
-                  rows={9}
-                  value={script}
-                  onChange={(e) => setScript(e.target.value)}
-                  className={`${inputClass} font-mono resize-y`}
+                  type="text"
+                  value={businessIdInput}
+                  onChange={(e) => setBusinessIdInput(e.target.value)}
+                  disabled={isLive}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
+                  placeholder="e.g. demo-business"
                 />
               </div>
 
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={runIntelligence}
-                  onChange={(e) => setRunIntelligence(e.target.checked)}
-                  className="rounded"
-                />
-                <span className="text-sm text-slate-700">
-                  Run Intelligence Engine on each agent turn
-                </span>
-              </label>
+              {convId && (
+                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-xs text-emerald-700">
+                  <Phone size={12} className="shrink-0" />
+                  <span>Call ID: <span className="font-mono font-semibold">{convId}</span></span>
+                </div>
+              )}
 
-              {status === "error" && (
+              {errorMsg && (
                 <div className="flex items-center gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm">
                   <AlertCircle size={15} className="shrink-0" /> {errorMsg}
                 </div>
               )}
 
-              <div className="flex gap-2">
-                <button
-                  type="submit"
-                  disabled={isRunning}
-                  className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {isRunning ? (
-                    <><Loader2 size={14} className="animate-spin" /> Running…</>
-                  ) : (
-                    <><Phone size={14} /> Start Simulation</>
-                  )}
-                </button>
-                {(status === "done" || status === "error") && (
+              {/* Action buttons */}
+              <div className="flex flex-col gap-2">
+                {!isLive && callStatus !== "ended" && (
                   <button
-                    type="button"
-                    onClick={reset}
-                    className="flex items-center gap-1.5 border border-slate-200 text-slate-600 rounded-lg px-3 py-2 text-sm hover:bg-slate-50 transition-colors"
+                    onClick={handleAnswerCall}
+                    className="flex items-center justify-center gap-2 bg-emerald-600 text-white rounded-lg px-4 py-2.5 text-sm font-medium hover:bg-emerald-700 transition-colors"
                   >
-                    <RefreshCw size={13} /> Reset
+                    {isConnecting ? (
+                      <><Loader2 size={15} className="animate-spin" /> Connecting…</>
+                    ) : (
+                      <><Phone size={15} /> Answer Call</>
+                    )}
+                  </button>
+                )}
+
+                {isLive && (
+                  <button
+                    onClick={handleEndCall}
+                    className="flex items-center justify-center gap-2 bg-red-600 text-white rounded-lg px-4 py-2.5 text-sm font-medium hover:bg-red-700 transition-colors"
+                  >
+                    <PhoneOff size={15} /> End Call
+                  </button>
+                )}
+
+                {(callStatus === "ended" || callStatus === "error") && (
+                  <button
+                    onClick={handleReset}
+                    className="flex items-center justify-center gap-2 border border-slate-200 text-slate-600 rounded-lg px-4 py-2.5 text-sm hover:bg-slate-50 transition-colors"
+                  >
+                    <RefreshCw size={14} /> New Call
                   </button>
                 )}
               </div>
-            </form>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+
+          {/* Push-to-talk button */}
+          {isLive && (
+            <Card>
+              <CardContent className="pt-5 flex flex-col items-center gap-3">
+                <p className="text-xs text-slate-500 text-center">Hold to speak, release to send</p>
+                <button
+                  onMouseDown={startRecording}
+                  onMouseUp={stopRecording}
+                  onTouchStart={(e) => { e.preventDefault(); startRecording(); }}
+                  onTouchEnd={(e) => { e.preventDefault(); stopRecording(); }}
+                  disabled={!canRecord && !isListening}
+                  className={`w-20 h-20 rounded-full flex items-center justify-center transition-all shadow-md
+                    ${isListening
+                      ? "bg-red-500 scale-110 shadow-red-200"
+                      : canRecord
+                      ? "bg-blue-600 hover:bg-blue-700 hover:scale-105"
+                      : "bg-slate-200 cursor-not-allowed"
+                    }`}
+                >
+                  {isListening ? (
+                    <MicOff size={28} className="text-white" />
+                  ) : (
+                    <Mic size={28} className={canRecord ? "text-white" : "text-slate-400"} />
+                  )}
+                </button>
+                <p className={`text-xs font-medium ${isListening ? "text-red-500" : "text-slate-400"}`}>
+                  {isListening ? "Recording…" : canRecord ? "Ready" : statusLabel}
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
 
         {/* Chat view */}
         <div className="flex flex-col min-h-0">
-          {/* Chat header */}
+          {/* Call header */}
           <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-t-xl px-4 py-3 shrink-0">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0" />
-              <span className="text-sm font-medium text-slate-800">
-                {businessId || "Simulation"} — {convId}
-              </span>
-            </div>
-            {status === "running" && (
-              <span className="flex items-center gap-1.5 text-xs text-blue-500 ml-auto">
-                <Loader2 size={12} className="animate-spin" /> {currentLabel}
-              </span>
-            )}
-            {status === "done" && (
-              <span className="flex items-center gap-1.5 text-xs text-emerald-600 ml-auto">
-                <CheckCircle2 size={12} /> {bubbles.length} segments transcribed
-              </span>
-            )}
+            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${statusColor[callStatus]}`} />
+            <span className="text-sm font-medium text-slate-800">
+              {convId ? `${businessIdInput} — ${convId}` : "No active call"}
+            </span>
+            <span className="text-xs text-slate-400 ml-auto">{statusLabel}</span>
           </div>
 
           {/* Messages */}
@@ -1510,17 +1404,17 @@ function CallSimulationPage({
             ref={chatRef}
             className="flex-1 overflow-y-auto bg-slate-50 border-x border-slate-200 p-4 space-y-3 min-h-100 max-h-150"
           >
-            {bubbles.length === 0 && status === "idle" && (
+            {bubbles.length === 0 && callStatus === "idle" && (
               <div className="flex flex-col items-center justify-center h-full text-slate-300 gap-3 pt-16">
-                <MessageSquare size={36} className="text-slate-200" />
-                <p className="text-sm">Fill in the script and press Start Simulation.</p>
+                <Phone size={36} className="text-slate-200" />
+                <p className="text-sm">Press Answer Call to start a live conversation with the AI agent.</p>
               </div>
             )}
 
-            {bubbles.length === 0 && isRunning && (
+            {bubbles.length === 0 && isConnecting && (
               <div className="flex items-center justify-center h-full gap-2 text-slate-400 pt-16">
                 <Loader2 size={18} className="animate-spin" />
-                <span className="text-sm">{currentLabel || "Processing…"}</span>
+                <span className="text-sm">{statusLabel}</span>
               </div>
             )}
 
@@ -1529,10 +1423,9 @@ function CallSimulationPage({
                 key={i}
                 className={`flex items-end gap-2 ${bubble.isAgent ? "flex-row-reverse" : "flex-row"}`}
               >
-                {/* Avatar */}
                 <div
                   className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                    bubble.isAgent ? "bg-blue-600" : "bg-slate-300"
+                    bubble.isAgent ? "bg-blue-600" : "bg-slate-400"
                   }`}
                 >
                   {bubble.isAgent ? (
@@ -1542,7 +1435,6 @@ function CallSimulationPage({
                   )}
                 </div>
 
-                {/* Bubble + optional action card */}
                 <div className={`flex flex-col gap-1 max-w-[70%] ${bubble.isAgent ? "items-end" : "items-start"}`}>
                   <span className="text-xs text-slate-400 px-1">{bubble.speaker}</span>
                   <div
@@ -1554,55 +1446,35 @@ function CallSimulationPage({
                   >
                     {bubble.text}
                   </div>
-
-                  {/* Confidence */}
-                  {bubble.confidence !== undefined && (
-                    <span className="text-xs text-slate-300 px-1">
-                      STT confidence {(bubble.confidence * 100).toFixed(0)}%
-                    </span>
-                  )}
-
-                  {/* Intelligence action */}
-                  {bubble.intelligenceAction && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-800 mt-0.5 max-w-full">
-                      <div className="flex items-center gap-1.5 font-semibold mb-1">
-                        <Zap size={11} /> AI Suggestion — {bubble.intelligenceAction.action_type}
-                        {bubble.intelligenceAction.escalate && (
-                          <span className="ml-1 text-red-500 font-medium">· Escalate</span>
-                        )}
-                      </div>
-                      <p className="leading-relaxed">{bubble.intelligenceAction.response_text}</p>
-                    </div>
-                  )}
                 </div>
               </div>
             ))}
 
-            {/* Typing indicator while running */}
-            {isRunning && bubbles.length > 0 && (
-              <div className="flex items-end gap-2">
-                <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center">
-                  <Bot size={15} className="text-slate-400" />
+            {/* Typing indicator while agent is thinking/speaking */}
+            {(callStatus === "processing" || callStatus === "speaking") && bubbles.length > 0 && (
+              <div className="flex items-end gap-2 flex-row-reverse">
+                <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
+                  <Bot size={15} className="text-white" />
                 </div>
-                <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-sm px-4 py-3">
+                <div className="bg-blue-50 border border-blue-100 rounded-2xl rounded-br-sm px-4 py-3">
                   <div className="flex gap-1">
-                    <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:0ms]" />
-                    <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:150ms]" />
-                    <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:300ms]" />
+                    <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce [animation-delay:0ms]" />
+                    <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce [animation-delay:150ms]" />
+                    <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce [animation-delay:300ms]" />
                   </div>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Chat footer */}
+          {/* Footer */}
           <div className="bg-white border border-t-0 border-slate-200 rounded-b-xl px-4 py-3 shrink-0">
             <p className="text-xs text-slate-400">
-              {status === "done"
-                ? `Simulation complete — ${bubbles.length} turns transcribed via STT pipeline`
-                : status === "running"
-                ? currentLabel
-                : "Ready — speech-to-text powered by RapidAPI Whisper"}
+              {callStatus === "ended"
+                ? `Call ended — ${bubbles.length} messages exchanged`
+                : callStatus === "idle"
+                ? "Powered by OpenAI GPT-4o · Whisper STT · TTS"
+                : statusLabel}
             </p>
           </div>
         </div>
@@ -1653,7 +1525,6 @@ export default function App() {
 
   const navItems: { id: Page; label: string; icon: React.ReactNode }[] = [
     { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={16} /> },
-    { id: "ingest", label: "Ingest Audio", icon: <Upload size={16} /> },
     { id: "transcripts", label: "Transcripts", icon: <FileText size={16} /> },
     { id: "intelligence", label: "AI Demo", icon: <Zap size={16} /> },
     { id: "context", label: "Business Context", icon: <Building2 size={16} /> },
@@ -1751,7 +1622,6 @@ export default function App() {
       {/* Main */}
       <main className="flex-1 p-8 overflow-auto min-w-0">
         {page === "dashboard" && <DashboardPage health={health} refresh={refresh} tickets={tickets} onResolveTicket={resolveTicket} />}
-        {page === "ingest" && <IngestPage businessId={auth.businessId} />}
         {page === "transcripts" && <TranscriptsPage />}
         {page === "intelligence" && <IntelligencePage businessId={auth.businessId} onEscalate={addTicket} />}
         {page === "context" && <BusinessContextPage token={auth.token} />}
