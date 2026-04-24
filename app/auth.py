@@ -40,6 +40,7 @@ class UserRecord(BaseModel):
     salt: str
     business_id: str
     created_at: str
+    business_name: str = ""
 
 
 # ── User store (JSON file) ────────────────────────────────────────────────────
@@ -132,6 +133,7 @@ class RegisterRequest(BaseModel):
     username: str
     email: str
     password: str
+    business_name: str = ""
 
     @field_validator("username")
     @classmethod
@@ -161,6 +163,7 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     business_id: str
     username: str
+    business_name: str = ""
 
 
 class MeResponse(BaseModel):
@@ -168,6 +171,7 @@ class MeResponse(BaseModel):
     username: str
     email: str
     business_id: str
+    business_name: str = ""
     created_at: str
 
 
@@ -181,6 +185,8 @@ def register(body: RegisterRequest) -> TokenResponse:
             detail="Username already taken",
         )
     salt = secrets.token_hex(16)
+    # Use business_name if provided, otherwise fall back to username
+    effective_business_name = body.business_name.strip() if body.business_name.strip() else body.username
     user = UserRecord(
         id=str(uuid.uuid4()),
         username=body.username,
@@ -189,6 +195,7 @@ def register(body: RegisterRequest) -> TokenResponse:
         salt=salt,
         business_id=str(uuid.uuid4()),
         created_at=datetime.now(timezone.utc).isoformat(),
+        business_name=effective_business_name,
     )
     users = _load_users()
     users.append(user)
@@ -198,6 +205,7 @@ def register(body: RegisterRequest) -> TokenResponse:
         access_token=_create_token(user),
         business_id=user.business_id,
         username=user.username,
+        business_name=user.business_name,
     )
 
 
@@ -214,6 +222,7 @@ def login(body: LoginRequest) -> TokenResponse:
         access_token=_create_token(user),
         business_id=user.business_id,
         username=user.username,
+        business_name=user.business_name,
     )
 
 
@@ -224,5 +233,6 @@ def me(current_user: Annotated[UserRecord, Depends(get_current_user)]) -> MeResp
         username=current_user.username,
         email=current_user.email,
         business_id=current_user.business_id,
+        business_name=current_user.business_name,
         created_at=current_user.created_at,
     )

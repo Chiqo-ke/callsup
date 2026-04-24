@@ -101,8 +101,19 @@ class ConversationService:
         if redactions:
             REDACTIONS_TOTAL.inc(redactions)
         intent = self.infer_intent(redacted_text)
-        retrieved = self.retrieve_context(intent, request.business_id)
+
+        # Use caller-supplied business context when available, otherwise fall back to KB
+        if request.business_context:
+            biz_header = f"business={request.business_name or request.business_id}"
+            retrieved = f"{biz_header}\n{request.business_context}"
+        else:
+            retrieved = self.retrieve_context(intent, request.business_id)
+
+        name_hint = (
+            f"business_name={request.business_name}\n" if request.business_name else ""
+        )
         prompt = (
+            f"{name_hint}"
             f"intent={intent}\n"
             f"context={retrieved}\n"
             f"customer_text={redacted_text}\n"

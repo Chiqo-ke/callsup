@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   Sparkles,
   Trash2,
+  Upload,
   User,
   WifiOff,
   Zap,
@@ -33,7 +34,6 @@ import {
   fetchHealth,
   fetchTranscript,
   intelligenceStep,
-  simulateCall,
   login,
   register,
   getContextItems,
@@ -60,6 +60,7 @@ interface AuthState {
   token: string;
   businessId: string;
   username: string;
+  businessName: string;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -139,150 +140,411 @@ function serviceLabel(s: ServiceName) {
 // Login / Register page
 // ──────────────────────────────────────────────────────────────────────────────
 
-function LoginPage({ onAuth }: { onAuth: (auth: AuthState) => void }) {
-  const [tab, setTab] = useState<"login" | "register">("login");
+function LoginPage({ onAuth, onGoToRegister }: { onAuth: (auth: AuthState) => void; onGoToRegister: () => void }) {
   const [username, setUsername] = useState("");
-  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
 
   const inputClass =
-    "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+    "w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatus("loading");
     setErrorMsg("");
     try {
-      let resp;
-      if (tab === "login") {
-        resp = await login(username.trim(), password);
-      } else {
-        resp = await register(username.trim(), email.trim(), password);
-      }
+      const resp = await login(username.trim(), password);
       const auth: AuthState = {
         token: resp.access_token,
         businessId: resp.business_id,
         username: resp.username,
+        businessName: resp.business_name || resp.username,
       };
       localStorage.setItem("callsup_auth", JSON.stringify(auth));
       onAuth(auth);
     } catch (err: unknown) {
       setStatus("error");
-      setErrorMsg(err instanceof Error ? err.message : "Authentication failed");
+      setErrorMsg(err instanceof Error ? err.message : "Invalid credentials");
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         {/* Logo */}
-        <div className="flex items-center justify-center gap-3 mb-8">
-          <ShieldCheck size={32} className="text-blue-600" />
+        <div className="flex items-center justify-center gap-3 mb-10">
+          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
+            <ShieldCheck size={22} className="text-white" />
+          </div>
           <div>
-            <div className="text-2xl font-bold text-slate-900 leading-tight">CallSupport</div>
-            <div className="text-xs text-slate-400 leading-tight">Operations Platform</div>
+            <div className="text-2xl font-bold text-white leading-tight">CallSupport</div>
+            <div className="text-xs text-slate-400 leading-tight">AI Business Phone Platform</div>
           </div>
         </div>
 
-        <Card>
-          <CardHeader className="pb-3">
-            {/* Tabs */}
-            <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
-              <button
-                onClick={() => { setTab("login"); setStatus("idle"); setErrorMsg(""); }}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  tab === "login"
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                <LogIn size={13} /> Sign In
-              </button>
-              <button
-                onClick={() => { setTab("register"); setStatus("idle"); setErrorMsg(""); }}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  tab === "register"
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                <KeyRound size={13} /> Register
-              </button>
+        <div className="bg-white rounded-2xl shadow-2xl p-8">
+          <h1 className="text-xl font-bold text-slate-900 mb-1">Welcome back</h1>
+          <p className="text-sm text-slate-500 mb-6">Sign in to your account to continue.</p>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Username</label>
+              <input
+                required
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="your-username"
+                className={inputClass}
+                autoComplete="username"
+              />
             </div>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Username</label>
-                <input
-                  required
-                  minLength={3}
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="your-username"
-                  className={inputClass}
-                  autoComplete="username"
-                />
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
+              <input
+                required
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className={inputClass}
+                autoComplete="current-password"
+              />
+            </div>
+
+            {status === "error" && (
+              <div className="flex items-center gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm">
+                <AlertCircle size={14} className="shrink-0" /> {errorMsg}
               </div>
-              {tab === "register" && (
+            )}
+
+            <button
+              type="submit"
+              disabled={status === "loading"}
+              className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white rounded-lg px-4 py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors mt-2"
+            >
+              {status === "loading" ? (
+                <><Loader2 size={14} className="animate-spin" /> Signing in…</>
+              ) : (
+                <><LogIn size={14} /> Sign In</>
+              )}
+            </button>
+          </form>
+
+          <p className="text-center text-sm text-slate-500 mt-6">
+            New to CallSupport?{" "}
+            <button
+              onClick={onGoToRegister}
+              className="text-blue-600 font-semibold hover:underline"
+            >
+              Create your account →
+            </button>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Multi-step Register page
+// ──────────────────────────────────────────────────────────────────────────────
+
+function RegisterPage({ onAuth, onBackToLogin }: { onAuth: (auth: AuthState) => void; onBackToLogin: () => void }) {
+  const [step, setStep] = useState<1 | 2>(1);
+  const [registeredAuth, setRegisteredAuth] = useState<AuthState | null>(null);
+
+  // Step 1
+  const [businessName, setBusinessName] = useState("");
+  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+
+  // Step 2
+  const [contextItems, setContextItems] = useState<{ label: string; content: string }[]>([]);
+  const [ctxLabel, setCtxLabel] = useState("");
+  const [ctxContent, setCtxContent] = useState("");
+  const [ctxSaving, setCtxSaving] = useState(false);
+  const [ctxError, setCtxError] = useState("");
+
+  const inputClass =
+    "w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white";
+
+  const handleCreateAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password !== confirmPassword) {
+      setStatus("error");
+      setErrorMsg("Passwords do not match");
+      return;
+    }
+    setStatus("loading");
+    setErrorMsg("");
+    try {
+      const resp = await register(username.trim(), email.trim(), password, businessName.trim());
+      const auth: AuthState = {
+        token: resp.access_token,
+        businessId: resp.business_id,
+        username: resp.username,
+        businessName: resp.business_name || resp.username,
+      };
+      localStorage.setItem("callsup_auth", JSON.stringify(auth));
+      setRegisteredAuth(auth);
+      setStep(2);
+    } catch (err: unknown) {
+      setStatus("error");
+      setErrorMsg(err instanceof Error ? err.message : "Registration failed");
+    }
+  };
+
+  const handleAddContext = async () => {
+    if (!ctxLabel.trim() || !ctxContent.trim() || !registeredAuth) return;
+    setCtxSaving(true);
+    setCtxError("");
+    try {
+      await createContextItem(registeredAuth.token, ctxLabel.trim(), ctxContent.trim(), "manual", false);
+      setContextItems((prev) => [...prev, { label: ctxLabel.trim(), content: ctxContent.trim() }]);
+      setCtxLabel("");
+      setCtxContent("");
+    } catch (err: unknown) {
+      setCtxError(err instanceof Error ? err.message : "Failed to save context");
+    } finally {
+      setCtxSaving(false);
+    }
+  };
+
+  const handleFinish = () => {
+    if (registeredAuth) onAuth(registeredAuth);
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 flex items-center justify-center p-4">
+      <div className="w-full max-w-lg">
+        {/* Logo */}
+        <div className="flex items-center justify-center gap-3 mb-8">
+          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
+            <ShieldCheck size={22} className="text-white" />
+          </div>
+          <div>
+            <div className="text-2xl font-bold text-white leading-tight">CallSupport</div>
+            <div className="text-xs text-slate-400 leading-tight">AI Business Phone Platform</div>
+          </div>
+        </div>
+
+        {/* Step indicators */}
+        <div className="flex items-center justify-center gap-3 mb-6">
+          <div className={`flex items-center gap-2 text-sm font-medium ${step === 1 ? "text-blue-400" : "text-emerald-400"}`}>
+            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${step > 1 ? "bg-emerald-500 text-white" : "bg-blue-600 text-white"}`}>
+              {step > 1 ? <CheckCircle2 size={14} /> : "1"}
+            </div>
+            Account
+          </div>
+          <div className="w-12 h-px bg-slate-600" />
+          <div className={`flex items-center gap-2 text-sm font-medium ${step === 2 ? "text-blue-400" : "text-slate-500"}`}>
+            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${step === 2 ? "bg-blue-600 text-white" : "bg-slate-700 text-slate-400"}`}>
+              2
+            </div>
+            Business Setup
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-2xl p-8">
+          {step === 1 ? (
+            <>
+              <h1 className="text-xl font-bold text-slate-900 mb-1">Create your account</h1>
+              <p className="text-sm text-slate-500 mb-6">Get started with AI-powered call support for your business.</p>
+
+              <form onSubmit={handleCreateAccount} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Email <span className="text-slate-400 font-normal">(optional)</span>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Business Name <span className="text-slate-400 font-normal">(optional)</span>
                   </label>
                   <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@company.com"
+                    value={businessName}
+                    onChange={(e) => setBusinessName(e.target.value)}
+                    placeholder="e.g. Acme Corp"
                     className={inputClass}
-                    autoComplete="email"
+                    autoComplete="off"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">Your AI agent will greet callers using this name.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Username <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      required
+                      minLength={3}
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="your-username"
+                      className={inputClass}
+                      autoComplete="username"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      Email <span className="text-slate-400 font-normal">(optional)</span>
+                    </label>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@company.com"
+                      className={inputClass}
+                      autoComplete="email"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Password <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    required
+                    type="password"
+                    minLength={8}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="At least 8 characters"
+                    className={inputClass}
+                    autoComplete="new-password"
                   />
                 </div>
-              )}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-                <input
-                  required
-                  type="password"
-                  minLength={8}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className={inputClass}
-                  autoComplete={tab === "login" ? "current-password" : "new-password"}
-                />
-              </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Confirm Password <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    required
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Repeat your password"
+                    className={inputClass}
+                    autoComplete="new-password"
+                  />
+                </div>
 
-              {status === "error" && (
-                <div className="flex items-center gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm">
-                  <AlertCircle size={14} className="shrink-0" /> {errorMsg}
+                {status === "error" && (
+                  <div className="flex items-center gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm">
+                    <AlertCircle size={14} className="shrink-0" /> {errorMsg}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={status === "loading"}
+                  className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white rounded-lg px-4 py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors mt-2"
+                >
+                  {status === "loading" ? (
+                    <><Loader2 size={14} className="animate-spin" /> Creating account…</>
+                  ) : (
+                    <>Continue <span className="ml-0.5">→</span></>
+                  )}
+                </button>
+              </form>
+
+              <p className="text-center text-sm text-slate-500 mt-6">
+                Already have an account?{" "}
+                <button onClick={onBackToLogin} className="text-blue-600 font-semibold hover:underline">
+                  Sign in
+                </button>
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-3 mb-1">
+                <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
+                  <CheckCircle2 size={16} className="text-emerald-600" />
+                </div>
+                <h1 className="text-xl font-bold text-slate-900">Account created!</h1>
+              </div>
+              <p className="text-sm text-slate-500 mb-5">
+                Tell your AI agent about your business so it can answer customer questions accurately.
+                You can add more context later in the <strong>Business Context</strong> section.
+              </p>
+
+              {/* Saved context preview */}
+              {contextItems.length > 0 && (
+                <div className="mb-4 space-y-2">
+                  {contextItems.map((item, i) => (
+                    <div key={i} className="flex items-start gap-2 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2.5">
+                      <CheckCircle2 size={14} className="text-emerald-500 mt-0.5 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-700">{item.label}</p>
+                        <p className="text-xs text-slate-400 truncate">{item.content}</p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
 
-              <button
-                type="submit"
-                disabled={status === "loading"}
-                className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {status === "loading" ? (
-                  <><Loader2 size={14} className="animate-spin" /> {tab === "login" ? "Signing in…" : "Creating account…"}</>
-                ) : tab === "login" ? (
-                  <><LogIn size={14} /> Sign In</>
-                ) : (
-                  <><KeyRound size={14} /> Create Account</>
+              {/* Add context form */}
+              <div className="border border-slate-200 rounded-xl p-4 mb-5 space-y-3 bg-slate-50/50">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Add a context item</p>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Topic Label</label>
+                  <input
+                    value={ctxLabel}
+                    onChange={(e) => setCtxLabel(e.target.value)}
+                    placeholder="e.g. Company Overview, Products, Hours…"
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Content</label>
+                  <textarea
+                    rows={3}
+                    value={ctxContent}
+                    onChange={(e) => setCtxContent(e.target.value)}
+                    placeholder="Describe this topic. The AI agent will use this during live calls…"
+                    className={`${inputClass} resize-y`}
+                  />
+                </div>
+                {ctxError && (
+                  <div className="flex items-center gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm">
+                    <AlertCircle size={14} className="shrink-0" /> {ctxError}
+                  </div>
                 )}
-              </button>
+                <button
+                  type="button"
+                  onClick={handleAddContext}
+                  disabled={ctxSaving || !ctxLabel.trim() || !ctxContent.trim()}
+                  className="flex items-center gap-2 bg-slate-800 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {ctxSaving ? (
+                    <><Loader2 size={13} className="animate-spin" /> Saving…</>
+                  ) : (
+                    <><CheckCircle2 size={13} /> Add Context Item</>
+                  )}
+                </button>
+              </div>
 
-              {tab === "register" && (
-                <p className="text-xs text-slate-400 text-center">
-                  A unique Business ID will be created automatically for your account.
-                </p>
-              )}
-            </form>
-          </CardContent>
-        </Card>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={handleFinish}
+                  className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white rounded-lg px-4 py-2.5 text-sm font-semibold hover:bg-blue-700 transition-colors"
+                >
+                  {contextItems.length > 0 ? "Finish Setup →" : "Go to Dashboard →"}
+                </button>
+                {contextItems.length === 0 && (
+                  <button
+                    type="button"
+                    onClick={handleFinish}
+                    className="px-4 py-2.5 text-sm text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+                  >
+                    Skip for now
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -666,11 +928,11 @@ function IntelligencePage({
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Start ms</label>
-                  <input required type="number" min={0} value={startMs} onChange={(e) => setStartMs(e.target.value)} className={inputClass} />
+                  <input required type="number" min={0} value={startMs} onChange={(e) => setStartMs(e.target.value)} className={inputClass} placeholder="0" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">End ms</label>
-                  <input required type="number" min={0} value={endMs} onChange={(e) => setEndMs(e.target.value)} className={inputClass} />
+                  <input required type="number" min={0} value={endMs} onChange={(e) => setEndMs(e.target.value)} className={inputClass} placeholder="5000" />
                 </div>
               </div>
               <div>
@@ -959,6 +1221,7 @@ function BusinessContextPage({ token }: { token: string }) {
                   accept=".txt,.md,.csv,.json"
                   className="hidden"
                   onChange={handleFileChange}
+                  aria-label="Upload context file"
                 />
               </div>
             )}
@@ -1030,6 +1293,7 @@ function BusinessContextPage({ token }: { token: string }) {
                           value={editContent}
                           onChange={(e) => setEditContent(e.target.value)}
                           className={`${inputClass} resize-y`}
+                          placeholder="Business context content…"
                         />
                         <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-slate-700">
                           <input
@@ -1489,6 +1753,7 @@ function CallSimulationPage({
 
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
+  const [authView, setAuthView] = useState<"login" | "register">("login");
   const { health, refresh } = useServiceHealth();
   const [tickets, setTickets] = useState<EscalatedTicket[]>(loadTickets);
   const [auth, setAuth] = useState<AuthState | null>(() => {
@@ -1521,7 +1786,12 @@ export default function App() {
     setAuth(null);
   };
 
-  if (!auth) return <LoginPage onAuth={setAuth} />;
+  if (!auth) {
+    if (authView === "register") {
+      return <RegisterPage onAuth={setAuth} onBackToLogin={() => setAuthView("login")} />;
+    }
+    return <LoginPage onAuth={setAuth} onGoToRegister={() => setAuthView("register")} />;
+  }
 
   const navItems: { id: Page; label: string; icon: React.ReactNode }[] = [
     { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={16} /> },
@@ -1606,14 +1876,15 @@ export default function App() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 min-w-0">
               <User size={13} className="text-slate-400 shrink-0" />
-              <span className="text-xs text-slate-400 truncate">{auth.username}</span>
+              <span className="text-xs text-slate-400 truncate">{auth.businessName || auth.username}</span>
             </div>
             <button
               onClick={handleLogout}
-              className="flex items-center gap-1 text-slate-500 hover:text-red-400 transition-colors"
+              className="flex items-center gap-2 text-slate-400 hover:text-red-400 hover:bg-slate-800 px-3 py-1.5 rounded-lg text-sm transition-colors"
               title="Sign out"
             >
-              <LogOut size={13} />
+              <LogOut size={14} />
+              <span>Sign Out</span>
             </button>
           </div>
         </div>

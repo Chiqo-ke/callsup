@@ -166,6 +166,7 @@ export interface AuthResponse {
   token_type: string;
   business_id: string;
   username: string;
+  business_name: string;
 }
 
 export interface MeResponse {
@@ -189,8 +190,8 @@ async function authPost(path: string, body: Record<string, string>): Promise<Aut
   return res.json();
 }
 
-export function register(username: string, email: string, password: string): Promise<AuthResponse> {
-  return authPost("/auth/register", { username, email, password });
+export function register(username: string, email: string, password: string, businessName = ""): Promise<AuthResponse> {
+  return authPost("/auth/register", { username, email, password, business_name: businessName });
 }
 
 export function login(username: string, password: string): Promise<AuthResponse> {

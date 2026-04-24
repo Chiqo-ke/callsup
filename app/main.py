@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from app.auth import router as auth_router
+from app.business_context import get_business_name, load_business_context
 from app.config import Settings, get_settings
 from app.context_store import router as context_router
 from app.logging_config import setup_logging
@@ -164,10 +165,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def voice_chat(body: VoiceChatRequest) -> dict:
         """LLM conversation turn via OpenCode server. Returns {reply, history}."""
         opencode_url = os.environ.get("OPENCODE_SERVER_URL", "http://127.0.0.1:4096")
+
+        # Resolve real business name and load all context items
+        data_dir = active_settings.data_dir
+        business_name = get_business_name(body.business_id, data_dir)
+        context_text = load_business_context(body.business_id, data_dir)
+
         system_prompt = (
-            f"You are a professional customer service representative answering calls for "
-            f"business '{body.business_id}'. Be helpful, polite, and concise (2-4 sentences). "
-            "You are speaking on the phone — respond naturally as if speaking aloud."
+            f"You are a professional customer support agent for {business_name}.\n\n"
+            f"Business Information:\n{context_text if context_text else 'No additional context provided.'}\n\n"
+            "Guidelines:\n"
+            "- You are on a phone call — be natural and conversational\n"
+            "- Be helpful, polite, and concise (2-4 sentences per response)\n"
+            f"- Always refer to the business as '{business_name}'"
         )
 
         async def _get_or_create_session() -> str:
@@ -186,24 +196,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 resp.raise_for_status()
                 session_id = resp.json()["id"]
                 _opencode_sessions[body.conv_id] = session_id
-                # Inject system prompt silently (no AI reply)
+                # Inject enriched system prompt silently (no AI reply)
                 await c.post(
                     f"{opencode_url}/session/{session_id}/message",
                     json={"noReply": True, "parts": [{"type": "text", "text": system_prompt}]},
                 )
                 return session_id
 
+        # On first turn: inject context and return the hardcoded greeting immediately
+        # (fast, consistent, no LLM latency)
+        if body.first_turn:
+            try:
+                await _get_or_create_session()
+            except Exception as exc:
+                logger.warning("voice_chat_session_init_warning: %s", exc)
+            greeting = f"Hello, this is {business_name}, how may I assist you today?"
+            history = [{"role": "assistant", "content": greeting}]
+            logger.info(
+                "voice_chat_first_turn",
+                extra={"conv_id": body.conv_id, "business_name": business_name},
+            )
+            return {"reply": greeting, "history": history}
+
         try:
             session_id = await _get_or_create_session()
-            user_text = (
-                "[A customer has just called. Please greet them and ask how you can help.]"
-                if body.first_turn
-                else body.message
-            )
             async with httpx.AsyncClient(timeout=60.0) as c:
                 resp = await c.post(
                     f"{opencode_url}/session/{session_id}/message",
-                    json={"parts": [{"type": "text", "text": user_text}]},
+                    json={"parts": [{"type": "text", "text": body.message}]},
                 )
                 resp.raise_for_status()
                 data = resp.json()
@@ -223,13 +243,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             reply = data.get("info", {}).get("text", "")
 
         new_history = [m.model_dump() for m in body.history]
-        if not body.first_turn:
-            new_history.append({"role": "user", "content": body.message})
+        new_history.append({"role": "user", "content": body.message})
         new_history.append({"role": "assistant", "content": reply})
 
         logger.info(
             "voice_chat_turn",
-            extra={"conv_id": body.conv_id, "first_turn": body.first_turn, "reply_len": len(reply)},
+            extra={"conv_id": body.conv_id, "first_turn": False, "reply_len": len(reply)},
         )
         return {"reply": reply, "history": new_history}
 

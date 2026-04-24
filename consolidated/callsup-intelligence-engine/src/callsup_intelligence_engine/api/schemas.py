@@ -23,6 +23,8 @@ class StepRequest(BaseModel):
     conv_id: str
     segment: TranscriptSegment
     session_state: dict[str, Any] = Field(default_factory=dict)
+    business_name: str = ""
+    business_context: str = ""
 
 
 class LLMUsage(BaseModel):
