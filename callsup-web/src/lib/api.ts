@@ -108,6 +108,7 @@ export interface ChatMessage {
 export interface VoiceChatResponse {
   reply: string;
   history: ChatMessage[];
+  escalated: boolean;
 }
 
 export async function voiceChat(
@@ -214,6 +215,8 @@ export interface BusinessContextItem {
   content: string;
   type: "manual" | "file";
   file_name?: string;
+  is_alert?: boolean;
+  expires_at?: string;  // ISO-8601 UTC; undefined = never expires
   created_at: string;
   updated_at: string;
 }
@@ -236,12 +239,22 @@ export async function createContextItem(
   content: string,
   type: "manual" | "file",
   refineWithAi = false,
-  fileName?: string
+  fileName?: string,
+  isAlert = false,
+  expiresAt?: string
 ): Promise<BusinessContextItem> {
   const res = await fetch(`${SERVICES.audio}/context`, {
     method: "POST",
     headers: authHeaders(token),
-    body: JSON.stringify({ label, content, type, file_name: fileName, refine_with_ai: refineWithAi }),
+    body: JSON.stringify({
+      label,
+      content,
+      type,
+      file_name: fileName,
+      refine_with_ai: refineWithAi,
+      is_alert: isAlert,
+      expires_at: expiresAt ?? null,
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -253,7 +266,7 @@ export async function createContextItem(
 export async function updateContextItem(
   token: string,
   id: string,
-  updates: { label?: string; content?: string },
+  updates: { label?: string; content?: string; is_alert?: boolean; expires_at?: string | null },
   refineWithAi = false
 ): Promise<BusinessContextItem> {
   const res = await fetch(`${SERVICES.audio}/context/${encodeURIComponent(id)}`, {
@@ -277,6 +290,136 @@ export async function deleteContextItem(token: string, id: string): Promise<void
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail ?? "Delete failed");
   }
+}
+
+// ── Escalation Rules ──────────────────────────────────────────────────────────
+
+export interface EscalationRule {
+  id: string;
+  business_id: string;
+  rule_text: string;
+  ai_refined_text?: string;
+  priority: "high" | "medium" | "low";
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listEscalationRules(token: string): Promise<EscalationRule[]> {
+  const res = await fetch(`${SERVICES.audio}/escalation-rules`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error("Failed to load escalation rules");
+  return res.json();
+}
+
+export async function createEscalationRule(
+  token: string,
+  body: { rule_text: string; priority: "high" | "medium" | "low"; refine_with_ai?: boolean }
+): Promise<EscalationRule> {
+  const res = await fetch(`${SERVICES.audio}/escalation-rules`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail ?? "Create rule failed");
+  }
+  return res.json();
+}
+
+export async function updateEscalationRule(
+  token: string,
+  id: string,
+  updates: {
+    rule_text?: string;
+    ai_refined_text?: string;
+    priority?: "high" | "medium" | "low";
+    is_active?: boolean;
+    refine_with_ai?: boolean;
+  }
+): Promise<EscalationRule> {
+  const res = await fetch(`${SERVICES.audio}/escalation-rules/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: authHeaders(token),
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail ?? "Update rule failed");
+  }
+  return res.json();
+}
+
+export async function deleteEscalationRule(token: string, id: string): Promise<void> {
+  const res = await fetch(`${SERVICES.audio}/escalation-rules/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail ?? "Delete rule failed");
+  }
+}
+
+// ── Escalation Queue ──────────────────────────────────────────────────────────
+
+export interface EscalationTicket {
+  id: string;
+  business_id: string;
+  session_id: string;
+  conv_id?: string;
+  reason: string;
+  priority: "high" | "medium" | "low";
+  summary?: string;
+  rule_triggered?: string;
+  status: "pending" | "claimed" | "resolved";
+  created_at: string;
+  claimed_by?: string;
+  resolved_at?: string;
+  conversation_history?: { role: string; content: string }[];
+}
+
+export async function listEscalationQueue(
+  token: string,
+  status?: "pending" | "claimed" | "resolved"
+): Promise<EscalationTicket[]> {
+  const url = new URL(`${SERVICES.audio}/escalation-queue`);
+  if (status) url.searchParams.set("status", status);
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error("Failed to load escalation queue");
+  return res.json();
+}
+
+export async function getEscalationTicket(
+  token: string,
+  ticketId: string
+): Promise<EscalationTicket> {
+  const res = await fetch(`${SERVICES.audio}/escalation-queue/${encodeURIComponent(ticketId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error("Ticket not found");
+  return res.json();
+}
+
+export async function updateEscalationTicket(
+  token: string,
+  id: string,
+  body: { status: "pending" | "claimed" | "resolved"; claimed_by?: string }
+): Promise<EscalationTicket> {
+  const res = await fetch(`${SERVICES.audio}/escalation-queue/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: authHeaders(token),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail ?? "Update ticket failed");
+  }
+  return res.json();
 }
 
 // ── Intelligence Engine ───────────────────────────────────────────────────────

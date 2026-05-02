@@ -19,6 +19,7 @@ import {
   PhoneOff,
   RefreshCw,
   Server,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -31,6 +32,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./com
 import { Badge } from "./components/ui/badge";
 import { Spinner } from "./components/ui/spinner";
 import {
+  SERVICES,
   fetchHealth,
   fetchTranscript,
   intelligenceStep,
@@ -42,8 +44,17 @@ import {
   deleteContextItem,
   voiceChat,
   voiceSTT,
+  listEscalationRules,
+  createEscalationRule,
+  updateEscalationRule,
+  deleteEscalationRule,
+  listEscalationQueue,
+  updateEscalationTicket,
+  getEscalationTicket,
   type BusinessContextItem,
   type ChatMessage,
+  type EscalationRule,
+  type EscalationTicket,
   type HealthResult,
   type IntelligenceAction,
   type ServiceName,
@@ -54,39 +65,13 @@ import {
 // Types
 // ──────────────────────────────────────────────────────────────────────────────
 
-type Page = "dashboard" | "transcripts" | "intelligence" | "context" | "simulation";
+type Page = "dashboard" | "transcripts" | "intelligence" | "context" | "escalation-rules" | "simulation";
 
 interface AuthState {
   token: string;
   businessId: string;
   username: string;
   businessName: string;
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Escalated ticket types & local store
-// ──────────────────────────────────────────────────────────────────────────────
-
-interface EscalatedTicket {
-  id: string;
-  conv_id: string;
-  business_id: string;
-  reason: string;
-  timestamp: string;
-  status: "pending" | "resolved";
-}
-
-function loadTickets(): EscalatedTicket[] {
-  try {
-    const raw = localStorage.getItem("callsup_tickets");
-    return raw ? (JSON.parse(raw) as EscalatedTicket[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveTickets(tickets: EscalatedTicket[]): void {
-  localStorage.setItem("callsup_tickets", JSON.stringify(tickets));
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -557,22 +542,113 @@ function RegisterPage({ onAuth, onBackToLogin }: { onAuth: (auth: AuthState) => 
 function DashboardPage({
   health,
   refresh,
-  tickets,
-  onResolveTicket,
+  token,
+  username,
+  onJoinCall,
 }: {
   health: Record<ServiceName, HealthResult>;
   refresh: () => void;
-  tickets: EscalatedTicket[];
-  onResolveTicket: (id: string) => void;
+  token: string;
+  username: string;
+  onJoinCall: (convId: string, businessId: string) => void;
 }) {
   const services: ServiceName[] = ["audio", "intelligence", "llm"];
   const online = services.filter((s) => health[s].status === "online").length;
+
+  const [tickets, setTickets] = useState<EscalationTicket[]>([]);
+  const [loadingTickets, setLoadingTickets] = useState(true);
+  const [actioningId, setActioningId] = useState<string | null>(null);
+  const [viewingTicket, setViewingTicket] = useState<EscalationTicket | null>(null);
+
+  const fetchTickets = async () => {
+    try {
+      const data = await listEscalationQueue(token);
+      setTickets(data);
+    } catch {
+      // silently ignore poll errors
+    } finally {
+      setLoadingTickets(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTickets();
+    const id = setInterval(fetchTickets, 10_000);
+    return () => clearInterval(id);
+  }, [token]);
+
+  // SSE: real-time ticket push — supplements the 10s poll
+  useEffect(() => {
+    const es = new EventSource(
+      `${SERVICES.audio}/escalation-queue/stream?token=${encodeURIComponent(token)}`
+    );
+    es.onmessage = (e) => {
+      if (e.data === "connected") return;
+      try {
+        const ticket = JSON.parse(e.data) as EscalationTicket;
+        setTickets((prev) => {
+          if (prev.some((t) => t.id === ticket.id)) return prev;
+          return [ticket, ...prev];
+        });
+      } catch {
+        // ignore parse errors
+      }
+    };
+    es.onerror = () => {
+      es.close();
+    };
+    return () => es.close();
+  }, [token]);
+
+  const handleClaim = async (ticketId: string) => {
+    setActioningId(ticketId);
+    try {
+      await updateEscalationTicket(token, ticketId, { status: "claimed", claimed_by: username });
+      await fetchTickets();
+      if (viewingTicket?.id === ticketId) {
+        const updated = await getEscalationTicket(token, ticketId);
+        setViewingTicket(updated);
+      }
+    } finally {
+      setActioningId(null);
+    }
+  };
+
+  const handleResolve = async (ticketId: string) => {
+    setActioningId(ticketId);
+    try {
+      await updateEscalationTicket(token, ticketId, { status: "resolved" });
+      await fetchTickets();
+      if (viewingTicket?.id === ticketId) {
+        setViewingTicket(null);
+      }
+    } finally {
+      setActioningId(null);
+    }
+  };
+
+  const handleViewTicket = async (ticketId: string) => {
+    try {
+      const t = await getEscalationTicket(token, ticketId);
+      setViewingTicket(t);
+    } catch {
+      // ignore
+    }
+  };
+
   const pendingTickets = tickets.filter((t) => t.status === "pending");
+  const claimedTickets = tickets.filter((t) => t.status === "claimed");
   const resolvedToday = tickets.filter(
     (t) =>
       t.status === "resolved" &&
-      new Date(t.timestamp).toDateString() === new Date().toDateString()
+      new Date(t.resolved_at ?? t.created_at).toDateString() === new Date().toDateString()
   ).length;
+
+  const priorityBadgeClass = (p: EscalationTicket["priority"]) => {
+    if (p === "high") return "bg-red-100 text-red-700";
+    if (p === "low") return "bg-green-100 text-green-700";
+    return "bg-amber-100 text-amber-700";
+  }
 
   return (
     <div>
@@ -602,17 +678,17 @@ function DashboardPage({
         </Card>
         <Card>
           <CardContent className="pt-5 pb-4">
-            <div className="text-3xl font-bold text-emerald-600">{resolvedToday}</div>
+            <div className="text-3xl font-bold text-blue-600">{claimedTickets.length}</div>
             <div className="text-sm text-slate-500 mt-1 flex items-center gap-1.5">
-              <CheckCircle2 size={13} /> Resolved Today
+              <User size={13} /> In Progress
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-5 pb-4">
-            <div className="text-3xl font-bold text-slate-900">{tickets.length}</div>
+            <div className="text-3xl font-bold text-emerald-600">{resolvedToday}</div>
             <div className="text-sm text-slate-500 mt-1 flex items-center gap-1.5">
-              <Activity size={13} /> Total Escalations
+              <CheckCircle2 size={13} /> Resolved Today
             </div>
           </CardContent>
         </Card>
@@ -698,9 +774,11 @@ function DashboardPage({
                   <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
                     <th className="pb-2 font-medium pr-4">Conversation</th>
                     <th className="pb-2 font-medium pr-4">Reason</th>
+                    <th className="pb-2 font-medium pr-4">Priority</th>
+                    <th className="pb-2 font-medium pr-4">Rule</th>
                     <th className="pb-2 font-medium pr-4">Time</th>
                     <th className="pb-2 font-medium pr-4">Status</th>
-                    <th className="pb-2 font-medium"></th>
+                    <th className="pb-2 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -712,19 +790,51 @@ function DashboardPage({
                       <td className="py-3 pr-4 text-xs max-w-xs">
                         <span className="line-clamp-2">{ticket.reason}</span>
                       </td>
+                      <td className="py-3 pr-4">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${priorityBadgeClass(ticket.priority)}`}>
+                          {ticket.priority}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4 text-xs text-slate-400">
+                        {ticket.rule_triggered ?? "—"}
+                      </td>
                       <td className="py-3 pr-4 text-xs text-slate-400 whitespace-nowrap">
-                        {new Date(ticket.timestamp).toLocaleString()}
+                        {new Date(ticket.created_at).toLocaleString()}
                       </td>
                       <td className="py-3 pr-4">
-                        <Badge variant={ticket.status === "pending" ? "warning" : "online"}>
+                        <Badge
+                          variant={
+                            ticket.status === "pending"
+                              ? "warning"
+                              : ticket.status === "claimed"
+                              ? "default"
+                              : "online"
+                          }
+                        >
                           {ticket.status}
                         </Badge>
                       </td>
-                      <td className="py-3">
+                      <td className="py-3 flex items-center gap-2">
+                        <button
+                          onClick={() => handleViewTicket(ticket.id)}
+                          className="text-xs text-slate-500 hover:text-slate-800 font-medium border border-slate-200 rounded px-2 py-0.5 hover:bg-slate-50"
+                        >
+                          View
+                        </button>
                         {ticket.status === "pending" && (
                           <button
-                            onClick={() => onResolveTicket(ticket.id)}
-                            className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                            disabled={actioningId === ticket.id}
+                            onClick={() => handleClaim(ticket.id)}
+                            className="text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50"
+                          >
+                            Claim
+                          </button>
+                        )}
+                        {ticket.status === "claimed" && ticket.claimed_by === username && (
+                          <button
+                            disabled={actioningId === ticket.id}
+                            onClick={() => handleResolve(ticket.id)}
+                            className="text-xs text-emerald-600 hover:text-emerald-800 font-medium disabled:opacity-50"
                           >
                             Resolve
                           </button>
@@ -738,6 +848,16 @@ function DashboardPage({
           )}
         </CardContent>
       </Card>
+      {viewingTicket && (
+        <TicketDetailModal
+          ticket={viewingTicket}
+          onClose={() => setViewingTicket(null)}
+          onJoinCall={onJoinCall}
+          onClaim={handleClaim}
+          onResolve={handleResolve}
+          username={username}
+        />
+      )}
     </div>
   );
 }
@@ -856,10 +976,8 @@ function TranscriptsPage() {
 
 function IntelligencePage({
   businessId,
-  onEscalate,
 }: {
   businessId: string;
-  onEscalate: (ticket: EscalatedTicket) => void;
 }) {
   const [convId, setConvId] = useState("");
   const [speaker, setSpeaker] = useState("agent");
@@ -1034,8 +1152,12 @@ function BusinessContextPage({ token }: { token: string }) {
   const [editLabel, setEditLabel] = useState("");
   const [editContent, setEditContent] = useState("");
   const [editRefine, setEditRefine] = useState(false);
+  const [editIsAlert, setEditIsAlert] = useState(false);
+  const [editExpiresAt, setEditExpiresAt] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [apiError, setApiError] = useState("");
+  const [isAlert, setIsAlert] = useState(false);
+  const [expiresAt, setExpiresAt] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const loadItems = async () => {
@@ -1067,6 +1189,7 @@ function BusinessContextPage({ token }: { token: string }) {
   const handleAdd = async () => {
     const text = mode === "file" ? fileInfo?.content ?? "" : content;
     if (!label.trim() || !text.trim()) return;
+    if (isAlert && !expiresAt) return;  // expiry required for alerts
     setSaving(true);
     setApiError("");
     try {
@@ -1077,12 +1200,16 @@ function BusinessContextPage({ token }: { token: string }) {
         mode === "file" ? "file" : "manual",
         refineWithAi,
         mode === "file" ? fileInfo?.name : undefined,
+        isAlert,
+        isAlert && expiresAt ? new Date(expiresAt).toISOString() : undefined,
       );
       setItems((prev) => [...prev, item]);
       setLabel("");
       setContent("");
       setFileInfo(null);
       setRefineWithAi(false);
+      setIsAlert(false);
+      setExpiresAt("");
     } catch (err: unknown) {
       setApiError(err instanceof Error ? err.message : "Failed to save context");
     } finally {
@@ -1105,13 +1232,36 @@ function BusinessContextPage({ token }: { token: string }) {
     setEditLabel(item.label);
     setEditContent(item.content);
     setEditRefine(false);
+    setEditIsAlert(item.is_alert ?? false);
+    // Convert stored UTC ISO to local datetime-local value for the input
+    if (item.expires_at) {
+      const d = new Date(item.expires_at);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      setEditExpiresAt(
+        `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+      );
+    } else {
+      setEditExpiresAt("");
+    }
   };
 
   const handleSaveEdit = async (id: string) => {
     setSavingEdit(true);
     setApiError("");
     try {
-      const updated = await updateContextItem(token, id, { label: editLabel, content: editContent }, editRefine);
+      const updated = await updateContextItem(
+        token,
+        id,
+        {
+          label: editLabel,
+          content: editContent,
+          is_alert: editIsAlert,
+          expires_at: editIsAlert && editExpiresAt
+            ? new Date(editExpiresAt).toISOString()
+            : null,
+        },
+        editRefine,
+      );
       setItems((prev) => prev.map((i) => (i.id === id ? updated : i)));
       setEditingId(null);
     } catch (err: unknown) {
@@ -1239,9 +1389,39 @@ function BusinessContextPage({ token }: { token: string }) {
               </span>
             </label>
 
+            {/* Temporary Alert toggle */}
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={isAlert}
+                onChange={(e) => setIsAlert(e.target.checked)}
+                className="rounded"
+              />
+              <span className="flex items-center gap-1.5 text-sm text-slate-700">
+                <AlertCircle size={13} className="text-orange-500" /> Temporary Alert
+              </span>
+            </label>
+            {isAlert && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Alert Expiry <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="datetime-local"
+                  value={expiresAt}
+                  onChange={(e) => setExpiresAt(e.target.value)}
+                  className={inputClass}
+                  title="Alert expiry date and time"
+                />
+                <p className="text-xs text-slate-400 mt-1">
+                  Alert will stop being sent to the AI after this time.
+                </p>
+              </div>
+            )}
+
             <button
               onClick={handleAdd}
-              disabled={saving || !label.trim() || (mode === "text" ? !content.trim() : !fileInfo)}
+              disabled={saving || !label.trim() || (mode === "text" ? !content.trim() : !fileInfo) || (isAlert && !expiresAt)}
               className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {saving ? (
@@ -1277,8 +1457,12 @@ function BusinessContextPage({ token }: { token: string }) {
             </div>
           ) : (
             <div className="space-y-3">
-              {items.map((item) => (
-                <Card key={item.id} className="border border-slate-100">
+              {items.map((item) => {
+                const isExpired = item.is_alert && item.expires_at
+                  ? new Date(item.expires_at) < new Date()
+                  : false;
+                return (
+                <Card key={item.id} className={`border ${isExpired ? "border-slate-100 opacity-60" : "border-slate-100"}`}>
                   <CardContent className="pt-4 pb-3">
                     {editingId === item.id ? (
                       <div className="space-y-2">
@@ -1304,6 +1488,30 @@ function BusinessContextPage({ token }: { token: string }) {
                           />
                           <Sparkles size={12} className="text-blue-500" /> Refine with AI
                         </label>
+                        {/* Alert toggle in edit form */}
+                        <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={editIsAlert}
+                            onChange={(e) => setEditIsAlert(e.target.checked)}
+                            className="rounded"
+                          />
+                          <AlertCircle size={12} className="text-orange-500" /> Temporary Alert
+                        </label>
+                        {editIsAlert && (
+                          <div>
+                            <label className="block text-xs font-medium text-slate-700 mb-1">
+                              Alert Expiry <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="datetime-local"
+                              value={editExpiresAt}
+                              onChange={(e) => setEditExpiresAt(e.target.value)}
+                              className={inputClass}
+                              title="Alert expiry date and time"
+                            />
+                          </div>
+                        )}
                         <div className="flex gap-2">
                           <button
                             onClick={() => handleSaveEdit(item.id)}
@@ -1333,6 +1541,16 @@ function BusinessContextPage({ token }: { token: string }) {
                             <span className="text-sm font-medium text-slate-800 truncate">
                               {item.label}
                             </span>
+                            {item.is_alert && (
+                              <span className="inline-flex items-center gap-0.5 text-xs font-medium text-orange-600 bg-orange-50 border border-orange-200 rounded px-1.5 py-0.5 shrink-0">
+                                <AlertCircle size={10} /> Alert
+                              </span>
+                            )}
+                            {isExpired && (
+                              <span className="inline-flex items-center text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded px-1.5 py-0.5 shrink-0">
+                                Expired
+                              </span>
+                            )}
                             {item.file_name && (
                               <span className="text-xs text-slate-400 truncate hidden sm:block">
                                 ({item.file_name})
@@ -1359,6 +1577,11 @@ function BusinessContextPage({ token }: { token: string }) {
                         <p className="mt-2 text-xs text-slate-400 leading-relaxed line-clamp-3">
                           {item.content}
                         </p>
+                        {item.is_alert && item.expires_at && (
+                          <p className="mt-1 text-xs text-orange-400">
+                            Expires: {new Date(item.expires_at).toLocaleString()}
+                          </p>
+                        )}
                         <p className="mt-1.5 text-xs text-slate-300">
                           {new Date(item.created_at).toLocaleString()}
                         </p>
@@ -1366,7 +1589,8 @@ function BusinessContextPage({ token }: { token: string }) {
                     )}
                   </CardContent>
                 </Card>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -1390,16 +1614,16 @@ interface ChatBubble {
 function CallSimulationPage({
   businessId,
   token: _token,
-  onEscalate: _onEscalate,
+  initialConvId,
 }: {
   businessId: string;
   token: string;
-  onEscalate: (ticket: EscalatedTicket) => void;
+  initialConvId?: string;
 }) {
-  type CallStatus = "idle" | "connecting" | "active" | "listening" | "processing" | "speaking" | "ended" | "error";
+  type CallStatus = "idle" | "connecting" | "active" | "listening" | "processing" | "speaking" | "ended" | "error" | "escalated";
 
   const [callStatus, setCallStatus] = useState<CallStatus>("idle");
-  const [convId, setConvId] = useState("");
+  const [convId, setConvId] = useState(initialConvId ?? "");
   const [businessIdInput, setBusinessIdInput] = useState(businessId || "demo-business");
   const [bubbles, setBubbles] = useState<ChatBubble[]>([]);
   const [history, setHistory] = useState<ChatMessage[]>([]);
@@ -1504,6 +1728,10 @@ function CallSimulationPage({
       const chatResp = await voiceChat(convId, businessIdInput, userText, history, false);
       setHistory(chatResp.history);
       setBubbles((prev) => [...prev, { speaker: "Agent", text: chatResp.reply, isAgent: true }]);
+      if (chatResp.escalated) {
+        setCallStatus("escalated");
+        setStatusLabel("Escalated — human agent joining");
+      }
       await playTTS(chatResp.reply);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Error processing speech");
@@ -1530,7 +1758,7 @@ function CallSimulationPage({
     setStatusLabel("Ready — press Answer Call to begin");
   };
 
-  const isLive = callStatus !== "idle" && callStatus !== "ended" && callStatus !== "error";
+  const isLive = callStatus !== "idle" && callStatus !== "ended" && callStatus !== "error" && callStatus !== "escalated";
   const canRecord = callStatus === "active";
   const isListening = callStatus === "listening";
   const isConnecting = callStatus === "connecting";
@@ -1544,6 +1772,7 @@ function CallSimulationPage({
     speaking: "bg-blue-600 animate-pulse",
     ended: "bg-slate-400",
     error: "bg-red-600",
+    escalated: "bg-purple-500 animate-pulse",
   };
 
   return (
@@ -1729,6 +1958,13 @@ function CallSimulationPage({
                 </div>
               </div>
             )}
+
+            {/* Escalation banner */}
+            {callStatus === "escalated" && (
+              <div className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 text-sm text-purple-800 font-medium text-center">
+                🎫 A support ticket has been opened. A human agent will join shortly — please hold the line.
+              </div>
+            )}
           </div>
 
           {/* Footer */}
@@ -1748,6 +1984,326 @@ function CallSimulationPage({
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Ticket Detail Modal
+// ──────────────────────────────────────────────────────────────────────────────
+
+function TicketDetailModal({
+  ticket,
+  onClose,
+  onJoinCall,
+  onClaim,
+  onResolve,
+  username,
+}: {
+  ticket: EscalationTicket;
+  onClose: () => void;
+  onJoinCall: (convId: string, businessId: string) => void;
+  onClaim: (id: string) => void;
+  onResolve: (id: string) => void;
+  username: string;
+}) {
+  const priorityBadgeClass = (p: EscalationTicket["priority"]) => {
+    if (p === "high") return "bg-red-100 text-red-700";
+    if (p === "low") return "bg-green-100 text-green-700";
+    return "bg-amber-100 text-amber-700";
+  };
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-white rounded-xl max-w-2xl w-full max-h-[80vh] flex flex-col shadow-2xl">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-slate-100">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${priorityBadgeClass(ticket.priority)}`}>
+                {ticket.priority}
+              </span>
+              <Badge
+                variant={
+                  ticket.status === "pending" ? "warning" : ticket.status === "claimed" ? "default" : "online"
+                }
+              >
+                {ticket.status}
+              </Badge>
+            </div>
+            <h2 className="text-base font-semibold text-slate-900 leading-snug">{ticket.reason}</h2>
+            {ticket.rule_triggered && (
+              <p className="text-xs text-slate-400 mt-0.5">Rule: {ticket.rule_triggered}</p>
+            )}
+            <p className="text-xs text-slate-400 mt-0.5">
+              {new Date(ticket.created_at).toLocaleString()}
+              {ticket.conv_id && <> · Conv: <span className="font-mono">{ticket.conv_id}</span></>}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-700 shrink-0 mt-0.5"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Transcript */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+          {(ticket.conversation_history ?? []).length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-6">No conversation history recorded.</p>
+          ) : (
+            (ticket.conversation_history ?? []).map((msg, i) => (
+              <div
+                key={i}
+                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={`max-w-[78%] rounded-2xl px-4 py-2 text-sm leading-relaxed ${
+                    msg.role === "assistant"
+                      ? "bg-blue-600 text-white rounded-bl-sm"
+                      : "bg-slate-100 text-slate-800 rounded-br-sm"
+                  }`}
+                >
+                  {msg.content}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Footer actions */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100">
+          {ticket.status === "pending" && (
+            <button
+              onClick={() => onClaim(ticket.id)}
+              className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+            >
+              Claim
+            </button>
+          )}
+          {ticket.status === "claimed" && ticket.claimed_by === username && (
+            <button
+              onClick={() => onResolve(ticket.id)}
+              className="text-sm text-emerald-600 hover:text-emerald-800 font-medium"
+            >
+              Resolve
+            </button>
+          )}
+          {ticket.status !== "resolved" && ticket.conv_id && (
+            <button
+              onClick={() => { onJoinCall(ticket.conv_id!, ticket.business_id); onClose(); }}
+              className="text-sm bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-lg transition-colors"
+            >
+              Join as Agent
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="text-sm text-slate-500 hover:text-slate-700 font-medium px-4 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Escalation Rules page
+// ──────────────────────────────────────────────────────────────────────────────
+
+function EscalationRulesPage({ token }: { token: string }) {
+  const [rules, setRules] = useState<EscalationRule[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [ruleText, setRuleText] = useState("");
+  const [priority, setPriority] = useState<"high" | "medium" | "low">("medium");
+  const [aiRefine, setAiRefine] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+  const [editPriority, setEditPriority] = useState<"high" | "medium" | "low">("medium");
+  const [apiError, setApiError] = useState("");
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data = await listEscalationRules(token);
+      setRules(data);
+    } catch {
+      setApiError("Failed to load rules.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleAdd = async () => {
+    if (!ruleText.trim()) return;
+    setSaving(true);
+    setApiError("");
+    try {
+      await createEscalationRule(token, { rule_text: ruleText.trim(), priority }, aiRefine);
+      setRuleText("");
+      setPriority("medium");
+      setAiRefine(false);
+      await load();
+    } catch {
+      setApiError("Failed to save rule.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteEscalationRule(token, id);
+      await load();
+    } catch {
+      setApiError("Failed to delete rule.");
+    }
+  };
+
+  const handleSaveEdit = async (id: string) => {
+    try {
+      await updateEscalationRule(token, id, { rule_text: editText.trim(), priority: editPriority });
+      setEditingId(null);
+      await load();
+    } catch {
+      setApiError("Failed to update rule.");
+    }
+  };
+
+  const priorityColor = (p: EscalationRule["priority"]) => {
+    if (p === "high") return "bg-red-100 text-red-700";
+    if (p === "low") return "bg-green-100 text-green-700";
+    return "bg-amber-100 text-amber-700";
+  };
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-slate-900">Escalation Rules</h1>
+        <p className="text-sm text-slate-500 mt-1">Define when the AI should escalate calls to a human agent</p>
+      </div>
+      {apiError && <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">{apiError}</div>}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Add rule form */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Add New Rule</CardTitle>
+            <CardDescription>Describe when the AI should hand off to a human</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <label className="text-xs font-medium text-slate-600 block mb-1">Rule description</label>
+              <textarea
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                rows={4}
+                placeholder="e.g. Escalate if the customer mentions billing disputes or requests a refund above $100"
+                value={ruleText}
+                onChange={(e) => setRuleText(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 block mb-1">Priority</label>
+              <select
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as "high" | "medium" | "low")}
+              >
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={aiRefine}
+                onChange={(e) => setAiRefine(e.target.checked)}
+                className="rounded"
+              />
+              AI-refine rule for better LLM understanding
+            </label>
+            <button
+              disabled={saving || !ruleText.trim()}
+              onClick={handleAdd}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 rounded-lg disabled:opacity-50 transition-colors"
+            >
+              {saving ? "Saving…" : "Add Rule"}
+            </button>
+          </CardContent>
+        </Card>
+
+        {/* Rules list */}
+        <div className="space-y-3">
+          {loading ? (
+            <div className="flex items-center justify-center py-10 text-slate-400">
+              <Spinner className="w-5 h-5" />
+            </div>
+          ) : rules.length === 0 ? (
+            <Card>
+              <CardContent className="py-10 text-center text-slate-400 text-sm">
+                No rules yet. Add one to get started.
+              </CardContent>
+            </Card>
+          ) : (
+            rules.map((rule) => (
+              <Card key={rule.id}>
+                <CardContent className="pt-4 pb-3">
+                  {editingId === rule.id ? (
+                    <div className="space-y-2">
+                      <textarea
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        rows={3}
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                      />
+                      <select
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={editPriority}
+                        onChange={(e) => setEditPriority(e.target.value as "high" | "medium" | "low")}
+                      >
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                      </select>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleSaveEdit(rule.id)} className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700">Save</button>
+                        <button onClick={() => setEditingId(null)} className="text-xs text-slate-500 hover:text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200">Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${priorityColor(rule.priority)}`}>{rule.priority}</span>
+                        <div className="flex gap-1.5">
+                          <button onClick={() => { setEditingId(rule.id); setEditText(rule.rule_text); setEditPriority(rule.priority); }} className="text-xs text-slate-400 hover:text-blue-600">Edit</button>
+                          <button onClick={() => handleDelete(rule.id)} className="text-xs text-slate-400 hover:text-red-600">Delete</button>
+                        </div>
+                      </div>
+                      <p className="text-sm text-slate-700">{rule.rule_text}</p>
+                      {rule.ai_refined_text && rule.ai_refined_text !== rule.rule_text && (
+                        <div className="mt-2 pt-2 border-t border-slate-100">
+                          <p className="text-xs text-slate-400 mb-1">AI-refined version:</p>
+                          <p className="text-xs text-slate-500 italic">{rule.ai_refined_text}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Root
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -1755,7 +2311,7 @@ export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
   const [authView, setAuthView] = useState<"login" | "register">("login");
   const { health, refresh } = useServiceHealth();
-  const [tickets, setTickets] = useState<EscalatedTicket[]>(loadTickets);
+  const [joinConvId, setJoinConvId] = useState<string>("");
   const [auth, setAuth] = useState<AuthState | null>(() => {
     try {
       const stored = localStorage.getItem("callsup_auth");
@@ -1765,25 +2321,14 @@ export default function App() {
     }
   });
 
-  const addTicket = (ticket: EscalatedTicket) => {
-    setTickets((prev) => {
-      const next = [...prev, ticket];
-      saveTickets(next);
-      return next;
-    });
-  };
-
-  const resolveTicket = (id: string) => {
-    setTickets((prev) => {
-      const next = prev.map((t) => (t.id === id ? { ...t, status: "resolved" as const } : t));
-      saveTickets(next);
-      return next;
-    });
-  };
-
   const handleLogout = () => {
     localStorage.removeItem("callsup_auth");
     setAuth(null);
+  };
+
+  const handleJoinCall = (convId: string, _businessId: string) => {
+    setJoinConvId(convId);
+    setPage("simulation");
   };
 
   if (!auth) {
@@ -1799,6 +2344,7 @@ export default function App() {
     { id: "intelligence", label: "AI Demo", icon: <Zap size={16} /> },
     { id: "context", label: "Business Context", icon: <Building2 size={16} /> },
     { id: "simulation", label: "Call Simulation", icon: <MessageSquare size={16} /> },
+    { id: "escalation-rules", label: "Escalation Rules", icon: <ShieldAlert size={16} /> },
   ];
 
   const onlineCount = Object.values(health).filter((h) => h.status === "online").length;
@@ -1892,11 +2438,12 @@ export default function App() {
 
       {/* Main */}
       <main className="flex-1 p-8 overflow-auto min-w-0">
-        {page === "dashboard" && <DashboardPage health={health} refresh={refresh} tickets={tickets} onResolveTicket={resolveTicket} />}
+        {page === "dashboard" && <DashboardPage health={health} refresh={refresh} token={auth.token} username={auth.username} onJoinCall={handleJoinCall} />}
         {page === "transcripts" && <TranscriptsPage />}
-        {page === "intelligence" && <IntelligencePage businessId={auth.businessId} onEscalate={addTicket} />}
+        {page === "intelligence" && <IntelligencePage businessId={auth.businessId} />}
         {page === "context" && <BusinessContextPage token={auth.token} />}
-        {page === "simulation" && <CallSimulationPage businessId={auth.businessId} token={auth.token} onEscalate={addTicket} />}
+        {page === "simulation" && <CallSimulationPage businessId={auth.businessId} token={auth.token} initialConvId={joinConvId} />}
+        {page === "escalation-rules" && <EscalationRulesPage token={auth.token} />}
       </main>
     </div>
   );

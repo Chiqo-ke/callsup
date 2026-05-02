@@ -115,11 +115,16 @@ def _get_copilot_token() -> str:
 class GenerateRequest(BaseModel):
     prompt: str
     model: str = "gpt-4o"
+    system_prompt: str | None = None
+    history: list[dict] | None = None
+    tools: list[dict] | None = None
+    tool_choice: str = "auto"
 
 
 class GenerateResponse(BaseModel):
     text: str
     usage: dict
+    tool_calls: list[dict] | None = None
 
 
 # ── Fallback mock (used when not yet authenticated) ───────────────────────────
@@ -153,11 +158,35 @@ def generate(request: GenerateRequest) -> GenerateResponse:
 
     if not token:
         logger.warning("No Copilot token — using mock fallback. Run auth_github_copilot.py to authenticate.")
+        # If this is a tool-calling request (escalation detection), check the prompt
+        # for escalation phrases and return a proper tool_call so tickets are created.
+        if request.tools:
+            prompt_lower = request.prompt.lower()
+            _ESC_PHRASES = [
+                "human agent", "real person", "live agent", "connecting",
+                "transfer", "hold the line", "human support", "specialist agent",
+                "transferring", "put you through", "real agent",
+            ]
+            if any(p in prompt_lower for p in _ESC_PHRASES):
+                logger.info("mock_tool_call: escalation detected in tool-decision prompt")
+                return GenerateResponse(
+                    text="",
+                    usage={"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+                    tool_calls=[{
+                        "id": "mock_tc_1",
+                        "type": "function",
+                        "function": {
+                            "name": "create_escalation_ticket",
+                            "arguments": json.dumps({"reason": "Caller transferred to human agent", "priority": "medium"}),
+                        },
+                    }],
+                )
         text = _mock_response(request.prompt)
         words = len(request.prompt.split())
         return GenerateResponse(
             text=text,
             usage={"prompt_tokens": words, "completion_tokens": len(text.split()), "total_tokens": words + len(text.split())},
+            tool_calls=None,
         )
 
     # Real GitHub Copilot call via OpenAI-compatible SDK
@@ -170,25 +199,45 @@ def generate(request: GenerateRequest) -> GenerateResponse:
             "Copilot-Integration-Id": "vscode-chat",
         },
     )
+    # Build messages list
+    system_content = request.system_prompt or (
+        "You are a professional call centre AI assistant for a business. "
+        "Be concise, helpful, and never reveal sensitive customer data. "
+        "All PII has already been redacted from the input — do not ask for it."
+    )
+    messages: list[dict] = [{"role": "system", "content": system_content}]
+    if request.history:
+        messages.extend(request.history)
+    messages.append({"role": "user", "content": request.prompt})
+
     try:
-        completion = client.chat.completions.create(
-            model=request.model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a professional call centre AI assistant for a business. "
-                        "Be concise, helpful, and never reveal sensitive customer data. "
-                        "All PII has already been redacted from the input — do not ask for it."
-                    ),
-                },
-                {"role": "user", "content": request.prompt},
-            ],
-            max_tokens=256,
-            temperature=0.3,
-        )
-        text = completion.choices[0].message.content or ""
+        kwargs: dict = {
+            "model": request.model,
+            "messages": messages,
+            "max_tokens": 256,
+            "temperature": 0.3,
+        }
+        if request.tools:
+            kwargs["tools"] = request.tools
+            kwargs["tool_choice"] = request.tool_choice
+        completion = client.chat.completions.create(**kwargs)
+        msg = completion.choices[0].message
+        text = msg.content or ""
         usage = completion.usage
+        # Serialize tool_calls if present
+        tool_calls_out: list[dict] | None = None
+        if msg.tool_calls:
+            tool_calls_out = [
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in msg.tool_calls
+            ]
         return GenerateResponse(
             text=text,
             usage={
@@ -196,7 +245,9 @@ def generate(request: GenerateRequest) -> GenerateResponse:
                 "completion_tokens": usage.completion_tokens if usage else 0,
                 "total_tokens": usage.total_tokens if usage else 0,
             },
+            tool_calls=tool_calls_out,
         )
     except Exception as exc:
         logger.error("Copilot API error: %s", exc)
         raise HTTPException(status_code=502, detail=f"Copilot API error: {exc}") from exc
+

@@ -42,6 +42,8 @@ class ContextItemMeta(BaseModel):
     label: str
     type: str  # "manual" | "file"
     file_name: str | None = None
+    is_alert: bool = False
+    expires_at: str | None = None  # ISO-8601 UTC; None = never expires
     created_at: str
     updated_at: str
 
@@ -56,12 +58,16 @@ class CreateContextRequest(BaseModel):
     type: str = "manual"
     file_name: str | None = None
     refine_with_ai: bool = False
+    is_alert: bool = False
+    expires_at: str | None = None  # ISO-8601 UTC expiry for temporary alerts
 
 
 class UpdateContextRequest(BaseModel):
     label: str | None = None
     content: str | None = None
     refine_with_ai: bool = False
+    is_alert: bool | None = None
+    expires_at: str | None = None  # ISO-8601 UTC; set to null to remove expiry
 
 
 # ── Storage helpers ───────────────────────────────────────────────────────────
@@ -167,6 +173,8 @@ def create_context(body: CreateContextRequest, current_user: CurrentUser) -> Con
         label=body.label,
         type=body.type,
         file_name=body.file_name,
+        is_alert=body.is_alert,
+        expires_at=body.expires_at,
         created_at=now,
         updated_at=now,
     )
@@ -189,6 +197,10 @@ def update_context(
         raise HTTPException(status_code=404, detail="Context item not found")
     if body.label is not None:
         meta.label = body.label
+    if body.is_alert is not None:
+        meta.is_alert = body.is_alert
+    if "expires_at" in body.model_fields_set:
+        meta.expires_at = body.expires_at
     content = _read_content(current_user.business_id, item_id)
     if body.content is not None:
         content = body.content
