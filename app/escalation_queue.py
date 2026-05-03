@@ -167,6 +167,53 @@ async def stream_escalations(token: str = Query(...)) -> StreamingResponse:
     )
 
 
+# ── Dashboard stats ───────────────────────────────────────────────────────────
+
+class DashboardStats(BaseModel):
+    calls_handled_today: int
+    pending_escalations: int
+    resolved_today: int
+    avg_handling_time_seconds: float | None
+
+
+@router.get("/stats", response_model=DashboardStats)
+def get_stats(current_user: CurrentUser) -> DashboardStats:
+    """Aggregate stats for the dashboard — derived from the ticket queue."""
+    tickets = _load_queue(current_user.business_id)
+    today = datetime.now(timezone.utc).date()
+
+    calls_today = 0
+    pending = 0
+    resolved_today = 0
+    handling_times: list[float] = []
+
+    for t in tickets:
+        created_date = datetime.fromisoformat(t.created_at).date()
+        if created_date == today:
+            calls_today += 1
+        if t.status == "pending":
+            pending += 1
+        if t.status == "resolved":
+            if t.resolved_at:
+                resolved_date = datetime.fromisoformat(t.resolved_at).date()
+                if resolved_date == today:
+                    resolved_today += 1
+                created_dt = datetime.fromisoformat(t.created_at)
+                resolved_dt = datetime.fromisoformat(t.resolved_at)
+                delta = (resolved_dt - created_dt).total_seconds()
+                if delta >= 0:
+                    handling_times.append(delta)
+
+    avg = (sum(handling_times) / len(handling_times)) if handling_times else None
+
+    return DashboardStats(
+        calls_handled_today=calls_today,
+        pending_escalations=pending,
+        resolved_today=resolved_today,
+        avg_handling_time_seconds=avg,
+    )
+
+
 @router.get("/{ticket_id}", response_model=EscalationTicket)
 def get_ticket(ticket_id: str, current_user: CurrentUser) -> EscalationTicket:
     tickets = _load_queue(current_user.business_id)
