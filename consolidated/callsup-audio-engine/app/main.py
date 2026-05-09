@@ -102,6 +102,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return {"status": "accepted", "conv_id": body.conv_id, "segments": len(segments)}
 
+    @app.post("/audio/transcribe")
+    async def transcribe_audio_endpoint(file: UploadFile = File(...)) -> dict[str, str]:
+        """Transcribe an uploaded audio file using Whisper and return the text."""
+        from app.transcription import transcribe_with_whisper
+
+        audio_bytes = await file.read()
+        text = transcribe_with_whisper(audio_bytes)
+        return {"text": text}
+
     return app
 
 

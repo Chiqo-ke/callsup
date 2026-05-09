@@ -1,6 +1,11 @@
 # start-all.ps1
-# Starts all 3 CALLSUP backend services in separate windows.
+# Starts all CALLSUP backend services in separate windows.
 # Run from any directory — paths are absolute.
+#
+# Architecture:
+#   port 9100  — LLM Adapter (internal only, called by the gateway)
+#   port 8010  — Unified Gateway (Audio Engine + Intelligence Engine combined)
+#                Frontend Vite proxy routes everything here.
 
 $venv = "C:\Users\nyaga\Documents\.venv\Scripts\python.exe"
 $root = "C:\Users\nyaga\Documents\callsup"
@@ -8,9 +13,8 @@ $root = "C:\Users\nyaga\Documents\callsup"
 Write-Host "Starting CALLSUP services..." -ForegroundColor Cyan
 
 # Write temporary launch scripts to avoid quoting issues
-$llmScript = "$root\_launch_llm.ps1"
-$audioScript = "$root\_launch_audio.ps1"
-$ieScript = "$root\_launch_ie.ps1"
+$llmScript     = "$root\_launch_llm.ps1"
+$gatewayScript = "$root\_launch_gateway.ps1"
 
 Set-Content -Path $llmScript -Value @"
 Set-Location '$root\svc-llm-adapter'
@@ -18,7 +22,7 @@ Set-Location '$root\svc-llm-adapter'
 Read-Host 'Press Enter to close'
 "@
 
-Set-Content -Path $audioScript -Value @"
+Set-Content -Path $gatewayScript -Value @"
 # Load .env from project root so OPENAI_API_KEY and RapidAPI keys are available
 `$envFile = '$root\.env'
 if (Test-Path `$envFile) {
@@ -31,29 +35,21 @@ if (Test-Path `$envFile) {
 `$env:CALLSUP_AUDIO_ENGINE_ENFORCE_TLS_IN_TRANSIT = 'false'
 `$env:CALLSUP_AUDIO_ENGINE_ALLOW_INSECURE_HTTP    = 'true'
 `$env:CALLSUP_AUDIO_ENGINE_DATA_DIR               = 'data'
-Set-Location '$root'
-& '$venv' -m uvicorn 'app.main:create_app' --factory --host 127.0.0.1 --port 8010
-Read-Host 'Press Enter to close'
-"@
-
-Set-Content -Path $ieScript -Value @"
 `$env:CALLSUP_INTELLIGENCE_ENGINE_LLM_ADAPTER_URL = 'http://127.0.0.1:9100'
 `$env:CALLSUP_INTELLIGENCE_ENGINE_MODEL           = 'gpt-4o'
-`$env:PYTHONPATH                                  = 'src'
-Set-Location '$root\consolidated\callsup-intelligence-engine'
-& '$venv' -m uvicorn 'callsup_intelligence_engine.main:create_app' --factory --host 127.0.0.1 --port 8011
+# Add the Intelligence Engine package to the Python path
+`$env:PYTHONPATH = 'consolidated\callsup-intelligence-engine\src'
+Set-Location '$root'
+& '$venv' -m uvicorn 'gateway:create_app' --factory --host 127.0.0.1 --port 8010
 Read-Host 'Press Enter to close'
 "@
 
 # ── LLM Adapter · port 9100 ──────────────────────────────────────────────────
 Start-Process powershell -ArgumentList "-NoExit -File `"$llmScript`"" -WindowStyle Normal
 
-# ── Audio Engine · port 8010 ─────────────────────────────────────────────────
-Start-Process powershell -ArgumentList "-NoExit -File `"$audioScript`"" -WindowStyle Normal
-
-# ── Intelligence Engine · port 8011 ──────────────────────────────────────────
-Start-Process powershell -ArgumentList "-NoExit -File `"$ieScript`"" -WindowStyle Normal
+# ── Unified Gateway · port 8010 ──────────────────────────────────────────────
+Start-Process powershell -ArgumentList "-NoExit -File `"$gatewayScript`"" -WindowStyle Normal
 
 Write-Host ""
-Write-Host "3 windows launched. Wait ~5 seconds then run:" -ForegroundColor Yellow
+Write-Host "2 windows launched. Wait ~5 seconds then run:" -ForegroundColor Yellow
 Write-Host "  .\test-endpoints.ps1" -ForegroundColor Green

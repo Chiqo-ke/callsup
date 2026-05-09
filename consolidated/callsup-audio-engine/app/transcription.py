@@ -1,8 +1,24 @@
+import io
+import os
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from app.models import TranscriptSegment
 from app.pii_redaction import redact_text
+
+
+def transcribe_with_whisper(audio_bytes: bytes) -> str:
+    """Transcribe audio bytes using OpenAI Whisper. Falls back to placeholder on missing key."""
+    import openai  # imported lazily so the module loads without openai installed in tests
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return "Audio received."
+    client = openai.OpenAI(api_key=api_key)
+    audio_file = io.BytesIO(audio_bytes)
+    audio_file.name = "recording.webm"
+    result = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
+    return result.text
 
 
 def mock_third_party_transcribe(redacted_payload: str) -> list[dict]:

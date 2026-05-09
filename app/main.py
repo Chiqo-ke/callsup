@@ -142,7 +142,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="CALLSUP Audio Engine API", version=active_settings.service_version)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:8081", "http://127.0.0.1:8081"],
+        allow_origins=[
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+            "http://localhost:8081",
+            "http://127.0.0.1:8081",
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
